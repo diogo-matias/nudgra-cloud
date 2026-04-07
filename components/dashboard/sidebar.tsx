@@ -9,7 +9,6 @@ import {
   Zap,
   Users,
   MessageSquare,
-  GitBranch,
   Activity,
   LogOut,
 } from "lucide-react";
@@ -21,7 +20,6 @@ const NAV_ITEMS = [
   { href: "/dashboard/rules", label: "Rules", icon: Zap },
   { href: "/dashboard/contacts", label: "Contacts", icon: Users },
   { href: "/dashboard/conversations", label: "Conversations", icon: MessageSquare },
-  { href: "/dashboard/sequences", label: "Sequences", icon: GitBranch },
   { href: "/dashboard/logs", label: "Logs", icon: Activity },
 ];
 
