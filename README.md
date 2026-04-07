@@ -15,6 +15,7 @@ This repository is not at that product stage yet. As of April 7, 2026, it is sti
 ## Current Repo Status
 
 - Frontend: Next.js 16 + React 19
+- UI system: `shadcn` components added as needed
 - Backend: Convex
 - Auth: Convex Auth with password sign-in
 - Current app behavior: starter demo that stores random numbers
@@ -23,6 +24,8 @@ Important: the marketing idea says "self-hosted on Vercel", but the current code
 
 ## Documentation
 
+- [About Nudgra](./ABOUT_PROJECT.md)
+- [Design](./DESIGN.md)
 - [Product Overview](./docs/product-overview.md)
 - [Technical Architecture](./docs/technical-architecture.md)
 - [Meta API Notes](./docs/meta-api-notes.md)

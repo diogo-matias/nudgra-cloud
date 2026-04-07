@@ -1,5 +1,8 @@
 # Nudgra Technical Architecture
 
+For product context, scope, and goals, see [About Nudgra](../ABOUT_PROJECT.md).
+For the intended visual system and UI constraints, see [Design](../DESIGN.md).
+
 ## Current Baseline
 
 As of April 7, 2026, this repo is still a Convex starter application:
@@ -16,6 +19,7 @@ That matters because the documentation below is a target architecture, not a des
 The product idea says "deploy once on Vercel and run it yourself." The current implementation direction is:
 
 - Next.js app in your own Vercel account
+- `shadcn` as the frontend component system, with components added only when needed
 - Convex as the database, function runtime, and scheduler
 
 That is operator-controlled, but not strictly self-hosted end-to-end. If strict self-hosting is non-negotiable, replace Convex with a self-hosted backend before going deeper into product work. If the real goal is "no ManyChat subscription and full app ownership," the current stack is still viable.
