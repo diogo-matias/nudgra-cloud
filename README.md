@@ -1,46 +1,50 @@
-# Welcome to your Convex + Next.js + Convex Auth app
+# Nudgra
 
-This is a [Convex](https://convex.dev/) project created with [`npm create convex`](https://www.npmjs.com/package/create-convex).
+Nudgra is an Instagram automation app for creators, operators, and developers who want ManyChat-style DM flows without paying recurring SaaS fees for each account. The product idea is simple: deploy the app in your own environment, connect your Instagram professional account through Meta, and run your automations from infrastructure you control.
 
-After the initial setup (<2 minutes) you'll have a working full-stack app using:
+This repository is not at that product stage yet. As of April 7, 2026, it is still the default Convex + Next.js starter with auth and demo data. The docs in this repo define the intended product, the recommended technical direction, and the work required to reach a realistic MVP.
 
-- Convex as your backend (database, server logic)
-- [React](https://react.dev/) as your frontend (web page interactivity)
-- [Next.js](https://nextjs.org/) for optimized web hosting and page routing
-- [Tailwind](https://tailwindcss.com/) for building great looking accessible UI
-- [Convex Auth](https://labs.convex.dev/auth) for authentication
+## Product Direction
 
-## Get started
+- DM automations triggered by keywords or inbound message intent
+- Story-triggered automation, starting with replies and validating mention handling during implementation
+- Delayed follow-up sequences with policy-safe sending windows
+- Contact tagging and conversation history
+- A lightweight operator dashboard for setup, logs, and troubleshooting
 
-If you just cloned this codebase and didn't use `npm create convex`, run:
+## Current Repo Status
 
-```
+- Frontend: Next.js 16 + React 19
+- Backend: Convex
+- Auth: Convex Auth with password sign-in
+- Current app behavior: starter demo that stores random numbers
+
+Important: the marketing idea says "self-hosted on Vercel", but the current codebase uses Convex, which is a managed backend. That means the product is not strictly self-hosted end-to-end in its current technical direction. If strict self-hosting is a hard requirement, the backend architecture will need to change.
+
+## Documentation
+
+- [Product Overview](./docs/product-overview.md)
+- [Technical Architecture](./docs/technical-architecture.md)
+- [Meta API Notes](./docs/meta-api-notes.md)
+- [MVP TODOs](./docs/mvp-todo.md)
+
+## Local Development
+
+```bash
 npm install
 npm run dev
 ```
 
-If you're reading this README on GitHub and want to use this template, run:
+The current `npm run dev` flow starts both Next.js and Convex local development services.
 
-```
-npm create convex@latest -- -t nextjs-convexauth
-```
+## Recommended MVP Cut
 
-## Learn more
+The fastest credible MVP is not "ManyChat clone, but free." It is:
 
-To learn more about developing your project with Convex, check out:
+1. Connect one Instagram professional account.
+2. Receive inbound DM and story-reply related webhook events.
+3. Match keywords and send automated replies.
+4. Enroll contacts into simple follow-up sequences with delays.
+5. Track contacts, tags, message history, and delivery failures.
 
-- The [Tour of Convex](https://docs.convex.dev/get-started) for a thorough introduction to Convex principles.
-- The rest of [Convex docs](https://docs.convex.dev/) to learn about all Convex features.
-- [Stack](https://stack.convex.dev/) for in-depth articles on advanced topics.
-- [Convex Auth docs](https://labs.convex.dev/auth) for documentation on the Convex Auth library.
-
-## Configuring other authentication methods
-
-To configure different authentication methods, see [Configuration](https://labs.convex.dev/auth/config) in the Convex Auth docs.
-
-## Join the community
-
-Join thousands of developers building full-stack apps with Convex:
-
-- Join the [Convex Discord community](https://convex.dev/community) to get help in real-time.
-- Follow [Convex on GitHub](https://github.com/get-convex/), star and contribute to the open-source implementation of Convex.
+Multi-account support, richer templates, comment-to-DM flows, analytics, and open-source hardening should come after that initial cut.
