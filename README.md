@@ -29,6 +29,7 @@ Important: the marketing idea says "self-hosted on Vercel", but the current code
 - [Product Overview](./docs/product-overview.md)
 - [Technical Architecture](./docs/technical-architecture.md)
 - [Meta API Notes](./docs/meta-api-notes.md)
+- [Meta Setup](./docs/meta-setup.md)
 - [MVP TODOs](./docs/mvp-todo.md)
 
 ## Local Development
