@@ -127,7 +127,7 @@ export function CommentAutomationPreview({
           </div>
 
           {/* Screen content */}
-          <div className="bg-black rounded-[1.6rem] overflow-hidden min-h-[480px] flex flex-col">
+          <div className="bg-black rounded-[1.6rem] overflow-hidden min-h-[560px] flex flex-col">
             {/* Tab content area */}
             <div className="flex-1 overflow-y-auto">
               <TabsContent value="post" className="mt-0 flex-1">
@@ -231,7 +231,7 @@ function PostPreview({
       </div>
 
       {/* Post image */}
-      <div className="aspect-square bg-[#262626] flex items-center justify-center">
+      <div className="relative w-full h-[200px] bg-[#262626] flex items-center justify-center overflow-hidden">
         {thumbnail ? (
           <img
             src={thumbnail}
@@ -260,7 +260,7 @@ function PostPreview({
 
       {/* Caption */}
       <div className="px-3 pb-3">
-        <p className="text-[11px] text-white/80 leading-relaxed">
+        <p className="text-[11px] text-white/80 leading-relaxed line-clamp-2">
           <span className="font-semibold text-white">{username}</span>{" "}
           {caption || "Your post caption will appear here..."}
         </p>
