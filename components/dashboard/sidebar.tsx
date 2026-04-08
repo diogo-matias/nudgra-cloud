@@ -17,9 +17,13 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, exact: true },
   { href: "/dashboard/account", label: "Account", icon: AtSign },
-  { href: "/dashboard/rules", label: "Rules", icon: Zap },
+  { href: "/dashboard/automations", label: "Automations", icon: Zap },
   { href: "/dashboard/contacts", label: "Contacts", icon: Users },
-  { href: "/dashboard/conversations", label: "Conversations", icon: MessageSquare },
+  {
+    href: "/dashboard/conversations",
+    label: "Conversations",
+    icon: MessageSquare,
+  },
   { href: "/dashboard/logs", label: "Logs", icon: Activity },
 ];
 
@@ -55,7 +59,7 @@ export function DashboardSidebar() {
                 "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                 isActive
                   ? "bg-primary/10 text-primary"
-                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
             >
               <Icon className="size-4 shrink-0" />

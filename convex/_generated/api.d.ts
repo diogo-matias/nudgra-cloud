@@ -10,13 +10,19 @@
 
 import type * as accounts from "../accounts.js";
 import type * as auth from "../auth.js";
+import type * as automations_commentAutomations from "../automations/commentAutomations.js";
+import type * as automations_commentFlow from "../automations/commentFlow.js";
 import type * as automations_rules from "../automations/rules.js";
 import type * as automations_sequences from "../automations/sequences.js";
 import type * as automations_shared from "../automations/shared.js";
 import type * as dashboard from "../dashboard.js";
 import type * as http from "../http.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as meta_commentWebhooks from "../meta/commentWebhooks.js";
+import type * as meta_comments from "../meta/comments.js";
 import type * as meta_config from "../meta/config.js";
+import type * as meta_media from "../meta/media.js";
+import type * as meta_mediaQueries from "../meta/mediaQueries.js";
 import type * as meta_oauth from "../meta/oauth.js";
 import type * as meta_send from "../meta/send.js";
 import type * as meta_sendActions from "../meta/sendActions.js";
@@ -33,13 +39,19 @@ import type {
 declare const fullApi: ApiFromModules<{
   accounts: typeof accounts;
   auth: typeof auth;
+  "automations/commentAutomations": typeof automations_commentAutomations;
+  "automations/commentFlow": typeof automations_commentFlow;
   "automations/rules": typeof automations_rules;
   "automations/sequences": typeof automations_sequences;
   "automations/shared": typeof automations_shared;
   dashboard: typeof dashboard;
   http: typeof http;
   "lib/auth": typeof lib_auth;
+  "meta/commentWebhooks": typeof meta_commentWebhooks;
+  "meta/comments": typeof meta_comments;
   "meta/config": typeof meta_config;
+  "meta/media": typeof meta_media;
+  "meta/mediaQueries": typeof meta_mediaQueries;
   "meta/oauth": typeof meta_oauth;
   "meta/send": typeof meta_send;
   "meta/sendActions": typeof meta_sendActions;
