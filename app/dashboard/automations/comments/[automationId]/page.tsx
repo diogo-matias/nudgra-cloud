@@ -32,6 +32,7 @@ export default function CommentAutomationDetailPage() {
     api.automations.commentAutomations.getCommentAutomationById,
     { automationId },
   );
+  const accountStatus = useQuery(api.accounts.getCurrentAccountStatus);
   const updateAutomation = useMutation(
     api.automations.commentAutomations.updateCommentAutomation,
   );
@@ -440,6 +441,9 @@ export default function CommentAutomationDetailPage() {
                 emailCollectionText: automation.emailCollectionText,
                 linkDmText: automation.linkDmText,
                 linkUrl: automation.linkUrl,
+                username: accountStatus?.account?.username ?? undefined,
+                profilePictureUrl:
+                  accountStatus?.account?.profilePictureUrl ?? undefined,
               }}
             />
           </div>
@@ -892,6 +896,9 @@ export default function CommentAutomationDetailPage() {
               emailCollectionText,
               linkDmText,
               linkUrl,
+              username: accountStatus?.account?.username ?? undefined,
+              profilePictureUrl:
+                accountStatus?.account?.profilePictureUrl ?? undefined,
             }}
           />
         </div>

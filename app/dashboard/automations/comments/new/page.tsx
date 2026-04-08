@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
   X,
@@ -25,6 +25,7 @@ export default function NewCommentAutomationPage() {
   const createAutomation = useMutation(
     api.automations.commentAutomations.createCommentAutomation,
   );
+  const accountStatus = useQuery(api.accounts.getCurrentAccountStatus);
 
   // General
   const [name, setName] = useState("");
@@ -626,6 +627,9 @@ export default function NewCommentAutomationPage() {
               emailCollectionText,
               linkDmText,
               linkUrl,
+              username: accountStatus?.account?.username ?? undefined,
+              profilePictureUrl:
+                accountStatus?.account?.profilePictureUrl ?? undefined,
             }}
           />
         </div>
