@@ -50,6 +50,7 @@ export default defineSchema({
     metaUserId: nullableString,
     username: nullableString,
     name: nullableString,
+    profilePictureUrl: v.optional(nullableString),
     accountType: v.union(
       v.literal("business"),
       v.literal("creator"),
