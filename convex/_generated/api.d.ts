@@ -8,9 +8,21 @@
  * @module
  */
 
+import type * as accounts from "../accounts.js";
 import type * as auth from "../auth.js";
+import type * as automations_rules from "../automations/rules.js";
+import type * as automations_sequences from "../automations/sequences.js";
+import type * as automations_shared from "../automations/shared.js";
+import type * as dashboard from "../dashboard.js";
 import type * as http from "../http.js";
-import type * as myFunctions from "../myFunctions.js";
+import type * as lib_auth from "../lib/auth.js";
+import type * as meta_config from "../meta/config.js";
+import type * as meta_oauth from "../meta/oauth.js";
+import type * as meta_send from "../meta/send.js";
+import type * as meta_sendActions from "../meta/sendActions.js";
+import type * as meta_sendHelpers from "../meta/sendHelpers.js";
+import type * as meta_webhooks from "../meta/webhooks.js";
+import type * as workspaces from "../workspaces.js";
 
 import type {
   ApiFromModules,
@@ -19,9 +31,21 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  accounts: typeof accounts;
   auth: typeof auth;
+  "automations/rules": typeof automations_rules;
+  "automations/sequences": typeof automations_sequences;
+  "automations/shared": typeof automations_shared;
+  dashboard: typeof dashboard;
   http: typeof http;
-  myFunctions: typeof myFunctions;
+  "lib/auth": typeof lib_auth;
+  "meta/config": typeof meta_config;
+  "meta/oauth": typeof meta_oauth;
+  "meta/send": typeof meta_send;
+  "meta/sendActions": typeof meta_sendActions;
+  "meta/sendHelpers": typeof meta_sendHelpers;
+  "meta/webhooks": typeof meta_webhooks;
+  workspaces: typeof workspaces;
 }>;
 
 /**

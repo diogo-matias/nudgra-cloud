@@ -19,7 +19,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Nudgra",
-  description: "Self-hosted Instagram automation.",
+  description: "Operator-owned Instagram automation.",
 };
 
 export default function RootLayout({
@@ -28,7 +28,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ConvexAuthNextjsServerProvider>
+    <ConvexAuthNextjsServerProvider shouldHandleCode={false}>
       <html lang="en" className={cn("font-sans", inter.variable)}>
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
