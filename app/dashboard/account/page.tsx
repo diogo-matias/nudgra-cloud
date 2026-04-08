@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { useSearchParams } from "next/navigation";
 import {
   AtSign,
@@ -18,6 +19,7 @@ type ConnectedAccount = {
   instagramAccountId: string;
   username: string | null;
   name: string | null;
+  profilePictureUrl: string | null;
   accountType: string;
   status: string;
   scopes: string[];
@@ -92,7 +94,9 @@ export default function AccountPage() {
             onDisconnect={() => void disconnectAccount({})}
           />
         ) : (
-          <NotConnectedState isMetaConfigured={Boolean(data?.isMetaConfigured)} />
+          <NotConnectedState
+            isMetaConfigured={Boolean(data?.isMetaConfigured)}
+          />
         )}
       </div>
     </main>
@@ -197,12 +201,34 @@ function ConnectedState({
   account: ConnectedAccount;
   onDisconnect: () => void;
 }) {
+  const refreshProfile = useAction(api.meta.oauth.refreshProfilePicture);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      await refreshProfile({});
+    } catch {
+      // Silently fail — the UI will still show the fallback avatar
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   return (
     <>
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="p-5 flex items-center gap-4">
-          <div className="size-12 rounded-full bg-muted flex items-center justify-center text-lg font-semibold text-foreground shrink-0">
-            {(account.username?.[0] ?? "I").toUpperCase()}
+          <div className="size-12 rounded-full bg-muted flex items-center justify-center text-lg font-semibold text-foreground shrink-0 overflow-hidden">
+            {account.profilePictureUrl ? (
+              <img
+                src={account.profilePictureUrl}
+                alt={account.username ?? "Instagram"}
+                className="size-12 rounded-full object-cover"
+              />
+            ) : (
+              (account.username?.[0] ?? "I").toUpperCase()
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -223,20 +249,35 @@ function ConnectedState({
                 : "Connected"}
             </p>
           </div>
-          <Link
-            href="/api/meta/connect"
-            className="text-sm font-medium text-muted-foreground hover:text-foreground border border-border rounded-lg px-3 py-1.5 hover:bg-muted transition-colors cursor-pointer flex items-center gap-1.5"
-          >
-            <RefreshCw className="size-3.5" />
-            Reconnect
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="text-sm font-medium text-muted-foreground hover:text-foreground border border-border rounded-lg px-3 py-1.5 hover:bg-muted transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Refresh profile from Instagram"
+            >
+              <RefreshCw
+                className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`}
+              />
+              {isRefreshing ? "Refreshing" : "Refresh"}
+            </button>
+            <Link
+              href="/api/meta/connect"
+              className="text-sm font-medium text-muted-foreground hover:text-foreground border border-border rounded-lg px-3 py-1.5 hover:bg-muted transition-colors cursor-pointer flex items-center gap-1.5"
+            >
+              <RefreshCw className="size-3.5" />
+              Reconnect
+            </Link>
+          </div>
         </div>
 
         <div className="border-t border-border px-5 py-4 grid grid-cols-3 gap-4">
           <div>
             <p className="text-xs text-muted-foreground">Token expires</p>
             <p className="text-sm font-medium text-foreground mt-0.5">
-              {account.tokenExpiresAt ? formatDate(account.tokenExpiresAt) : "Unknown"}
+              {account.tokenExpiresAt
+                ? formatDate(account.tokenExpiresAt)
+                : "Unknown"}
             </p>
           </div>
           <div>
@@ -248,7 +289,9 @@ function ConnectedState({
           <div>
             <p className="text-xs text-muted-foreground">Last webhook</p>
             <p className="text-sm font-medium text-foreground mt-0.5">
-              {account.lastWebhookAt ? formatDate(account.lastWebhookAt) : "Waiting"}
+              {account.lastWebhookAt
+                ? formatDate(account.lastWebhookAt)
+                : "Waiting"}
             </p>
           </div>
         </div>
@@ -303,9 +346,12 @@ function ConnectedState({
         <AlertTriangle className="size-4 text-destructive shrink-0 mt-0.5" />
         <div className="flex-1 flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-medium text-foreground">Disconnect account</p>
+            <p className="text-sm font-medium text-foreground">
+              Disconnect account
+            </p>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Removes the token and stops all automation. Reconnect later to resume.
+              Removes the token and stops all automation. Reconnect later to
+              resume.
             </p>
           </div>
           <button
