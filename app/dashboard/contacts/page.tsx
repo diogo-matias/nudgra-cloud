@@ -1,73 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { useQuery } from "convex/react";
 import { Search, Users, Tag } from "lucide-react";
+import { api } from "@/convex/_generated/api";
 
-// Shell mock data — replace with Convex query in the next pass
-const MOCK_CONTACTS = [
-  {
-    id: "1",
-    username: "sarah_creates",
-    displayName: "Sarah M.",
-    firstContact: "Mar 11",
-    lastActive: "Apr 5",
-    tags: ["interested", "warm-lead"],
-    messageCount: 6,
-  },
-  {
-    id: "2",
-    username: "dev_journal",
-    displayName: "Alex Chen",
-    firstContact: "Mar 15",
-    lastActive: "Apr 6",
-    tags: ["collaborator"],
-    messageCount: 3,
-  },
-  {
-    id: "3",
-    username: "the_real_marco",
-    displayName: "Marco V.",
-    firstContact: "Mar 22",
-    lastActive: "Apr 2",
-    tags: ["customer"],
-    messageCount: 4,
-  },
-  {
-    id: "4",
-    username: "luna_vibes",
-    displayName: "Luna K.",
-    firstContact: "Apr 1",
-    lastActive: "Apr 7",
-    tags: ["new"],
-    messageCount: 1,
-  },
-  {
-    id: "5",
-    username: "coach_daniel",
-    displayName: "Daniel R.",
-    firstContact: "Mar 28",
-    lastActive: "Mar 30",
-    tags: [],
-    messageCount: 2,
-  },
-];
-
-const TAG_COLORS: Record<string, string> = {
-  "interested": "text-blue-700 bg-blue-50 border-blue-200",
-  "warm-lead": "text-violet-700 bg-violet-50 border-violet-200",
-  "collaborator": "text-emerald-700 bg-emerald-50 border-emerald-200",
-  "customer": "text-amber-700 bg-amber-50 border-amber-200",
-  "new": "text-muted-foreground bg-muted border-border",
-};
-
-function tagClass(tag: string) {
-  return TAG_COLORS[tag] ?? "text-muted-foreground bg-muted border-border";
-}
-
-function initials(name: string) {
-  return name
+function initials(name: string | null, username: string | null) {
+  const label = name || username || "IG";
+  return label
     .split(" ")
-    .map((w) => w[0])
+    .map((word) => word[0])
     .join("")
     .toUpperCase()
     .slice(0, 2);
@@ -75,39 +17,37 @@ function initials(name: string) {
 
 export default function ContactsPage() {
   const [search, setSearch] = useState("");
+  const contacts = useQuery(api.dashboard.listContacts) ?? [];
 
-  const filtered = MOCK_CONTACTS.filter(
-    (c) =>
-      c.username.toLowerCase().includes(search.toLowerCase()) ||
-      c.displayName.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = contacts.filter((contact) => {
+    const query = search.toLowerCase();
+    return (
+      (contact.username ?? "").toLowerCase().includes(query) ||
+      (contact.displayName ?? "").toLowerCase().includes(query)
+    );
+  });
 
   return (
     <main className="flex-1 px-8 py-10">
       <div className="max-w-4xl w-full flex flex-col gap-6">
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-semibold text-foreground">Contacts</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {MOCK_CONTACTS.length} contacts across all conversations
-            </p>
-          </div>
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Contacts</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {contacts.length} contacts across all conversations
+          </p>
         </div>
 
-        {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
           <input
             type="text"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(event) => setSearch(event.target.value)}
             placeholder="Search by name or username..."
             className="w-full rounded-lg border border-input bg-background pl-9 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring transition"
           />
         </div>
 
-        {/* Table */}
         {filtered.length === 0 ? (
           <EmptyState hasSearch={search.length > 0} />
         ) : (
@@ -134,21 +74,18 @@ export default function ContactsPage() {
               </thead>
               <tbody className="divide-y divide-border">
                 {filtered.map((contact) => (
-                  <tr
-                    key={contact.id}
-                    className="hover:bg-muted/30 transition-colors cursor-pointer"
-                  >
+                  <tr key={contact.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-3">
                         <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-semibold text-primary shrink-0">
-                          {initials(contact.displayName)}
+                          {initials(contact.displayName, contact.username)}
                         </div>
                         <div>
                           <p className="font-medium text-foreground">
-                            {contact.displayName}
+                            {contact.displayName ?? "Instagram contact"}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            @{contact.username}
+                            @{contact.username ?? "unknown"}
                           </p>
                         </div>
                       </div>
@@ -158,25 +95,23 @@ export default function ContactsPage() {
                         {contact.tags.length > 0 ? (
                           contact.tags.map((tag) => (
                             <span
-                              key={tag}
-                              className={`inline-flex items-center gap-1 text-xs font-medium rounded-full px-2 py-0.5 border ${tagClass(tag)}`}
+                              key={tag.id}
+                              className="inline-flex items-center gap-1 text-xs font-medium rounded-full px-2 py-0.5 border text-muted-foreground bg-muted border-border"
                             >
                               <Tag className="size-2.5" />
-                              {tag}
+                              {tag.label}
                             </span>
                           ))
                         ) : (
-                          <span className="text-xs text-muted-foreground/50">
-                            —
-                          </span>
+                          <span className="text-xs text-muted-foreground/50">—</span>
                         )}
                       </div>
                     </td>
                     <td className="px-5 py-3.5 text-muted-foreground hidden md:table-cell">
-                      {contact.firstContact}
+                      {formatDate(contact.firstInboundAt)}
                     </td>
                     <td className="px-5 py-3.5 text-muted-foreground hidden md:table-cell">
-                      {contact.lastActive}
+                      {formatDate(contact.lastMessageAt)}
                     </td>
                     <td className="px-5 py-3.5 text-right tabular-nums font-medium text-foreground">
                       {contact.messageCount}
@@ -208,4 +143,11 @@ function EmptyState({ hasSearch }: { hasSearch: boolean }) {
       </p>
     </div>
   );
+}
+
+function formatDate(timestamp: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+  }).format(new Date(timestamp));
 }

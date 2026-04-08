@@ -1,57 +1,26 @@
 "use client";
 
 import Link from "next/link";
-import { Plus, Zap, MoreHorizontal, ToggleLeft, ToggleRight } from "lucide-react";
+import { useMutation, useQuery } from "convex/react";
+import { Plus, Zap, ToggleLeft, ToggleRight } from "lucide-react";
+import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
 
-// Shell mock data — replace with Convex query in the next pass
-const MOCK_RULES = [
-  {
-    id: "1",
-    name: "Link in bio",
-    keywords: ["link", "website", "url"],
-    reply: "Here's our link! Check it out at the link in our bio.",
-    triggerType: "keyword" as const,
-    active: true,
-    triggerCount: 47,
-    createdAt: "Mar 10",
-  },
-  {
-    id: "2",
-    name: "Pricing inquiry",
-    keywords: ["price", "pricing", "cost", "how much"],
-    reply: "Thanks for asking! DM me 'info' to get our full pricing breakdown.",
-    triggerType: "keyword" as const,
-    active: true,
-    triggerCount: 23,
-    createdAt: "Mar 12",
-  },
-  {
-    id: "3",
-    name: "Collaboration request",
-    keywords: ["collab", "collaborate", "partnership"],
-    reply: "Thanks for reaching out! Please fill out our collab form — link in bio.",
-    triggerType: "keyword" as const,
-    active: false,
-    triggerCount: 5,
-    createdAt: "Mar 20",
-  },
-];
-
 export default function RulesPage() {
-  const activeCount = MOCK_RULES.filter((r) => r.active).length;
+  const rules = useQuery(api.automations.rules.listCurrentRules) ?? [];
+  const toggleRule = useMutation(api.automations.rules.toggleRule);
+  const activeCount = rules.filter((rule) => rule.isActive).length;
 
   return (
     <main className="flex-1 px-8 py-10">
       <div className="max-w-4xl w-full flex flex-col gap-6">
-        {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold text-foreground">
               Automation Rules
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {activeCount} of {MOCK_RULES.length} rules active
+              {activeCount} of {rules.length} rules active
             </p>
           </div>
           <Link
@@ -63,105 +32,107 @@ export default function RulesPage() {
           </Link>
         </div>
 
-        {/* Rules list */}
-        {MOCK_RULES.length === 0 ? (
+        {rules.length === 0 ? (
           <EmptyState />
         ) : (
           <div className="flex flex-col gap-3">
-            {MOCK_RULES.map((rule) => (
-              <RuleCard key={rule.id} rule={rule} />
+            {rules.map((rule) => (
+              <Link
+                key={rule.id}
+                href={`/dashboard/rules/${rule.id}`}
+                className="bg-card border border-border rounded-xl p-5 flex items-start gap-4 hover:shadow-sm transition-all"
+              >
+                <div
+                  className={cn(
+                    "size-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5",
+                    rule.isActive ? "bg-primary/10" : "bg-muted"
+                  )}
+                >
+                  <Zap
+                    className={cn(
+                      "size-4",
+                      rule.isActive ? "text-primary" : "text-muted-foreground"
+                    )}
+                  />
+                </div>
+
+                <div className="flex-1 min-w-0 flex flex-col gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-semibold text-foreground">
+                      {rule.name}
+                    </p>
+                    <span
+                      className={cn(
+                        "inline-flex items-center text-xs font-medium rounded-full px-2 py-0.5 border",
+                        rule.isActive
+                          ? "text-emerald-700 bg-emerald-50 border-emerald-200"
+                          : "text-muted-foreground bg-muted border-border"
+                      )}
+                    >
+                      {rule.isActive ? "Active" : "Paused"}
+                    </span>
+                    {rule.sequence ? (
+                      <span className="text-xs text-muted-foreground">
+                        Sequence: {rule.sequence.name}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {rule.keywords.length > 0 ? (
+                      rule.keywords.map((keyword) => (
+                        <span
+                          key={keyword}
+                          className="text-xs font-mono text-muted-foreground bg-muted border border-border rounded-md px-1.5 py-0.5"
+                        >
+                          {keyword}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        Trigger: {rule.triggerType.replace("_", " ")}
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground max-w-xl truncate">
+                    Reply: &quot;{rule.replyText}&quot;
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0">
+                  <div className="text-right hidden sm:block">
+                    <p className="text-sm font-semibold text-foreground tabular-nums">
+                      {rule.triggerCount}
+                    </p>
+                    <p className="text-xs text-muted-foreground">triggers</p>
+                  </div>
+
+                  <button
+                    type="button"
+                    title={rule.isActive ? "Pause rule" : "Activate rule"}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      void toggleRule({
+                        ruleId: rule.id,
+                        isActive: !rule.isActive,
+                      });
+                    }}
+                    className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                  >
+                    {rule.isActive ? (
+                      <ToggleRight className="size-5 text-primary" />
+                    ) : (
+                      <ToggleLeft className="size-5" />
+                    )}
+                  </button>
+                </div>
+              </Link>
             ))}
           </div>
         )}
       </div>
     </main>
-  );
-}
-
-function RuleCard({
-  rule,
-}: {
-  rule: (typeof MOCK_RULES)[number];
-}) {
-  return (
-    <div className="bg-card border border-border rounded-xl p-5 flex items-start gap-4">
-      {/* Icon */}
-      <div
-        className={cn(
-          "size-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5",
-          rule.active ? "bg-primary/10" : "bg-muted"
-        )}
-      >
-        <Zap
-          className={cn(
-            "size-4",
-            rule.active ? "text-primary" : "text-muted-foreground"
-          )}
-        />
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 min-w-0 flex flex-col gap-2">
-        <div className="flex items-center gap-2 flex-wrap">
-          <p className="text-sm font-semibold text-foreground">{rule.name}</p>
-          <span
-            className={cn(
-              "inline-flex items-center text-xs font-medium rounded-full px-2 py-0.5 border",
-              rule.active
-                ? "text-emerald-700 bg-emerald-50 border-emerald-200"
-                : "text-muted-foreground bg-muted border-border"
-            )}
-          >
-            {rule.active ? "Active" : "Paused"}
-          </span>
-        </div>
-
-        {/* Keywords */}
-        <div className="flex flex-wrap gap-1.5">
-          {rule.keywords.map((kw) => (
-            <span
-              key={kw}
-              className="text-xs font-mono text-muted-foreground bg-muted border border-border rounded-md px-1.5 py-0.5"
-            >
-              {kw}
-            </span>
-          ))}
-        </div>
-
-        {/* Reply preview */}
-        <p className="text-xs text-muted-foreground truncate max-w-md">
-          Reply: "{rule.reply}"
-        </p>
-      </div>
-
-      {/* Right side */}
-      <div className="flex items-center gap-3 shrink-0">
-        <div className="text-right hidden sm:block">
-          <p className="text-sm font-semibold text-foreground tabular-nums">
-            {rule.triggerCount}
-          </p>
-          <p className="text-xs text-muted-foreground">triggers</p>
-        </div>
-
-        <button
-          title={rule.active ? "Pause rule" : "Activate rule"}
-          className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-        >
-          {rule.active ? (
-            <ToggleRight className="size-5 text-primary" />
-          ) : (
-            <ToggleLeft className="size-5" />
-          )}
-        </button>
-
-        <Link
-          href={`/dashboard/rules/${rule.id}`}
-          className="text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <MoreHorizontal className="size-4" />
-        </Link>
-      </div>
-    </div>
   );
 }
 

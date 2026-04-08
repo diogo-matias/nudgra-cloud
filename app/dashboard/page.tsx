@@ -1,5 +1,6 @@
 "use client";
 
+import { useQuery } from "convex/react";
 import Link from "next/link";
 import {
   Zap,
@@ -9,9 +10,19 @@ import {
   ArrowRight,
   AtSign,
 } from "lucide-react";
+import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
 
 export default function OverviewPage() {
+  const data = useQuery(api.dashboard.getOverview);
+  const hasConnectedAccount = Boolean(data?.account);
+  const stats = data?.stats ?? {
+    activeRules: 0,
+    contacts: 0,
+    conversations: 0,
+    failuresToday: 0,
+  };
+
   return (
     <main className="flex-1 px-8 py-10">
       <div className="max-w-4xl w-full flex flex-col gap-8">
@@ -30,28 +41,44 @@ export default function OverviewPage() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-foreground">
-              No Instagram account connected
+              {hasConnectedAccount
+                ? `Connected as @${data?.account?.username ?? "instagram"}`
+                : "No Instagram account connected"}
             </p>
             <p className="text-sm text-muted-foreground">
-              Connect a professional account to start automating.
+              {hasConnectedAccount
+                ? "Webhook events, rules, and follow-up sequences can run now."
+                : "Connect a professional account to start automating."}
             </p>
           </div>
           <Link
             href="/dashboard/account"
             className="shrink-0 text-sm font-medium bg-primary text-primary-foreground rounded-lg px-4 py-2 hover:opacity-90 transition-opacity"
           >
-            Connect
+            {hasConnectedAccount ? "Manage" : "Connect"}
           </Link>
         </div>
 
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <StatCard label="Active rules" value="0" icon={Zap} />
-          <StatCard label="Contacts" value="0" icon={Users} />
-          <StatCard label="Conversations" value="0" icon={MessageSquare} />
+          <StatCard
+            label="Active rules"
+            value={String(stats.activeRules)}
+            icon={Zap}
+          />
+          <StatCard
+            label="Contacts"
+            value={String(stats.contacts)}
+            icon={Users}
+          />
+          <StatCard
+            label="Conversations"
+            value={String(stats.conversations)}
+            icon={MessageSquare}
+          />
           <StatCard
             label="Failures today"
-            value="0"
+            value={String(stats.failuresToday)}
             icon={AlertCircle}
             destructive
           />
@@ -90,19 +117,49 @@ export default function OverviewPage() {
           <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
             Recent Activity
           </h2>
-          <div className="bg-card border border-border rounded-xl p-10 flex flex-col items-center text-center gap-2">
-            <p className="text-sm font-medium text-foreground">
-              No activity yet
-            </p>
-            <p className="text-sm text-muted-foreground max-w-sm leading-relaxed">
-              Automation events, replies, and errors will appear here once your
-              account is connected and rules are running.
-            </p>
-          </div>
+          {(data?.recentActivity.length ?? 0) === 0 ? (
+            <div className="bg-card border border-border rounded-xl p-10 flex flex-col items-center text-center gap-2">
+              <p className="text-sm font-medium text-foreground">
+                No activity yet
+              </p>
+              <p className="text-sm text-muted-foreground max-w-sm leading-relaxed">
+                Automation events, replies, and errors will appear here once
+                your account is connected and rules are running.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-card border border-border rounded-xl overflow-hidden divide-y divide-border">
+              {data?.recentActivity.map((item) => (
+                <div
+                  key={item.id}
+                  className="px-5 py-4 flex items-center justify-between gap-4"
+                >
+                  <div>
+                    <p className="text-sm text-foreground">{item.label}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {formatTimestamp(item.time)}
+                    </p>
+                  </div>
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                    {item.kind.replace("_", " ")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </main>
   );
+}
+
+function formatTimestamp(value: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function StatCard({

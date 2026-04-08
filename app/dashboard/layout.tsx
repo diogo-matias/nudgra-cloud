@@ -1,8 +1,9 @@
 "use client";
 
-import { useConvexAuth } from "convex/react";
+import { useConvexAuth, useMutation } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { api } from "@/convex/_generated/api";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
 
 export default function DashboardLayout({
@@ -12,12 +13,19 @@ export default function DashboardLayout({
 }) {
   const { isAuthenticated, isLoading } = useConvexAuth();
   const router = useRouter();
+  const ensureWorkspace = useMutation(api.workspaces.ensureCurrentWorkspace);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.push("/signin");
     }
   }, [isAuthenticated, isLoading, router]);
+
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      void ensureWorkspace({});
+    }
+  }, [ensureWorkspace, isAuthenticated, isLoading]);
 
   if (isLoading || !isAuthenticated) {
     return (
