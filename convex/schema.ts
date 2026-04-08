@@ -7,8 +7,14 @@ const nullableNumber = v.union(v.number(), v.null());
 const nullableInstagramAccountId = v.union(v.id("instagramAccounts"), v.null());
 const nullableWorkspaceId = v.union(v.id("workspaces"), v.null());
 const nullableAutomationRuleId = v.union(v.id("automationRules"), v.null());
-const nullableSequenceDefinitionId = v.union(v.id("sequenceDefinitions"), v.null());
-const nullableSequenceEnrollmentId = v.union(v.id("sequenceEnrollments"), v.null());
+const nullableSequenceDefinitionId = v.union(
+  v.id("sequenceDefinitions"),
+  v.null(),
+);
+const nullableSequenceEnrollmentId = v.union(
+  v.id("sequenceEnrollments"),
+  v.null(),
+);
 
 const sequenceStepValidator = v.object({
   delayMinutes: v.number(),
@@ -82,7 +88,10 @@ export default defineSchema({
     lastInboundAt: v.number(),
     lastMessageAt: v.number(),
   })
-    .index("by_workspace_id_and_last_message_at", ["workspaceId", "lastMessageAt"])
+    .index("by_workspace_id_and_last_message_at", [
+      "workspaceId",
+      "lastMessageAt",
+    ])
     .index("by_instagram_account_id_and_instagram_user_id", [
       "instagramAccountId",
       "instagramUserId",
@@ -106,7 +115,10 @@ export default defineSchema({
     messagingWindowClosesAt: nullableNumber,
     lastAutomationRuleId: nullableAutomationRuleId,
   })
-    .index("by_workspace_id_and_last_message_at", ["workspaceId", "lastMessageAt"])
+    .index("by_workspace_id_and_last_message_at", [
+      "workspaceId",
+      "lastMessageAt",
+    ])
     .index("by_contact_id", ["contactId"])
     .index("by_instagram_account_id_and_contact_id", [
       "instagramAccountId",
@@ -273,4 +285,101 @@ export default defineSchema({
     .index("by_workspace_id_and_status", ["workspaceId", "status"])
     .index("by_next_run_at", ["nextRunAt"])
     .index("by_contact_id", ["contactId"]),
+
+  // ── Comment-based automations ──────────────────────────────────
+
+  commentAutomations: defineTable({
+    workspaceId: v.id("workspaces"),
+    instagramAccountId: v.id("instagramAccounts"),
+    createdByUserId: v.id("users"),
+    name: v.string(),
+    status: v.union(v.literal("draft"), v.literal("live"), v.literal("paused")),
+
+    // Trigger: which posts to watch
+    postScope: v.union(
+      v.literal("specific"),
+      v.literal("any"),
+      v.literal("next"),
+    ),
+    selectedMediaIds: v.array(v.string()),
+
+    // Comment filter
+    commentFilter: v.union(v.literal("specific_words"), v.literal("any_word")),
+    triggerKeywords: v.array(v.string()),
+
+    // Comment reply (optional auto-reply under the post)
+    commentReplyEnabled: v.boolean(),
+    commentReplyTexts: v.array(v.string()),
+
+    // DM flow — opening message
+    openingDmEnabled: v.boolean(),
+    openingDmText: v.string(),
+    openingDmButtonText: v.string(),
+
+    // DM flow — follow gate
+    followGateEnabled: v.boolean(),
+    followGateText: v.string(),
+
+    // DM flow — email collection
+    emailCollectionEnabled: v.boolean(),
+    emailCollectionText: v.string(),
+
+    // DM flow — final link delivery
+    linkDmText: v.string(),
+    linkUrl: v.string(),
+
+    // DM flow — follow-up if they don't click
+    followUpEnabled: v.boolean(),
+    followUpText: v.string(),
+
+    // Stats
+    triggerCount: v.number(),
+    lastTriggeredAt: nullableNumber,
+  })
+    .index("by_workspace_id", ["workspaceId"])
+    .index("by_workspace_id_and_status", ["workspaceId", "status"]),
+
+  instagramMedia: defineTable({
+    workspaceId: v.id("workspaces"),
+    instagramAccountId: v.id("instagramAccounts"),
+    mediaId: v.string(),
+    mediaType: v.string(),
+    thumbnailUrl: nullableString,
+    mediaUrl: nullableString,
+    caption: nullableString,
+    timestamp: v.string(),
+    permalink: nullableString,
+    fetchedAt: v.number(),
+  })
+    .index("by_instagram_account_id", ["instagramAccountId"])
+    .index("by_media_id", ["mediaId"]),
+
+  commentAutomationSessions: defineTable({
+    workspaceId: v.id("workspaces"),
+    commentAutomationId: v.id("commentAutomations"),
+    contactId: v.id("contacts"),
+    conversationId: v.id("conversations"),
+    instagramAccountId: v.id("instagramAccounts"),
+    currentStep: v.union(
+      v.literal("opening_dm_sent"),
+      v.literal("awaiting_button_click"),
+      v.literal("follow_gate_sent"),
+      v.literal("awaiting_follow"),
+      v.literal("email_requested"),
+      v.literal("awaiting_email"),
+      v.literal("link_sent"),
+      v.literal("completed"),
+    ),
+    collectedEmail: nullableString,
+    commentId: nullableString,
+    mediaId: nullableString,
+    startedAt: v.number(),
+    lastStepAt: v.number(),
+  })
+    .index("by_comment_automation_id", ["commentAutomationId"])
+    .index("by_contact_id_and_comment_automation_id", [
+      "contactId",
+      "commentAutomationId",
+    ])
+    .index("by_conversation_id", ["conversationId"]),
 });
