@@ -1,7 +1,11 @@
 import { internalMutation, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { createSequenceEnrollment } from "../automations/sequences";
-import { makeMessagePreview, matchesAutomationRule } from "../automations/shared";
+import {
+  makeMessagePreview,
+  matchesAutomationRule,
+} from "../automations/shared";
+import { advanceCommentAutomationSession } from "../automations/commentFlow";
 import { queueAutomatedTextReply } from "./sendHelpers";
 import { Id } from "../_generated/dataModel";
 
@@ -35,14 +39,20 @@ function stringifyPayload(payload: unknown) {
 
 function getMessagingItems(payload: unknown) {
   if (!payload || typeof payload !== "object") {
-    return [] as Array<{ instagramAccountExternalId: string; item: MessagingItem }>;
+    return [] as Array<{
+      instagramAccountExternalId: string;
+      item: MessagingItem;
+    }>;
   }
 
   const entries = Array.isArray((payload as { entry?: unknown[] }).entry)
     ? (payload as { entry: unknown[] }).entry
     : [];
 
-  const items: Array<{ instagramAccountExternalId: string; item: MessagingItem }> = [];
+  const items: Array<{
+    instagramAccountExternalId: string;
+    item: MessagingItem;
+  }> = [];
   for (const entry of entries) {
     if (!entry || typeof entry !== "object") {
       continue;
@@ -57,7 +67,9 @@ function getMessagingItems(payload: unknown) {
       continue;
     }
 
-    const messaging = Array.isArray((entry as { messaging?: unknown[] }).messaging)
+    const messaging = Array.isArray(
+      (entry as { messaging?: unknown[] }).messaging,
+    )
       ? (entry as { messaging: unknown[] }).messaging
       : [];
 
@@ -237,7 +249,9 @@ export const ingestWebhookPayload = internalMutation({
       const isStoryReply = Boolean(item.message?.reply_to);
       const eventType = isStoryReply ? "story_reply" : "message";
       const text =
-        typeof item.message?.text === "string" ? item.message.text.trim() : null;
+        typeof item.message?.text === "string"
+          ? item.message.text.trim()
+          : null;
       const metaMessageId = item.message?.mid ?? null;
       const deliveryKey =
         metaMessageId ??
@@ -291,7 +305,9 @@ export const ingestWebhookPayload = internalMutation({
         await ctx.db.patch(existingContact._id, {
           username: item.sender.username ?? existingContact.username,
           displayName:
-            item.sender.name ?? item.sender.username ?? existingContact.displayName,
+            item.sender.name ??
+            item.sender.username ??
+            existingContact.displayName,
           lastInboundAt: messageTime,
           lastMessageAt: messageTime,
         });
@@ -425,6 +441,24 @@ export const ingestWebhookPayload = internalMutation({
         }
       }
 
+      // Check for active comment automation sessions and advance them
+      if (!matchedRule) {
+        const activeSession = await ctx.db
+          .query("commentAutomationSessions")
+          .withIndex("by_conversation_id", (q) =>
+            q.eq("conversationId", conversationId),
+          )
+          .unique();
+
+        if (
+          activeSession &&
+          activeSession.currentStep !== "completed" &&
+          activeSession.currentStep !== "link_sent"
+        ) {
+          await advanceCommentAutomationSession(ctx, activeSession._id, text);
+        }
+      }
+
       await ctx.db.patch(webhookEventId, {
         processedAt: Date.now(),
         processingStatus: "processed",
@@ -454,7 +488,9 @@ export const ingestWebhookPayload = internalMutation({
       workspaceId: matchedWorkspaceId,
       instagramAccountId: matchedAccountId,
       instagramAccountExternalId:
-        externalAccountId || messagingItems[0]?.instagramAccountExternalId || "",
+        externalAccountId ||
+        messagingItems[0]?.instagramAccountExternalId ||
+        "",
       sourceObject,
     });
 

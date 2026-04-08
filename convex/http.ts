@@ -31,7 +31,38 @@ http.route({
   method: "POST",
   handler: httpAction(async (ctx, request) => {
     const body = await request.text();
-    await ctx.runMutation(internal.meta.webhooks.ingestWebhookPayload, { body });
+
+    // Route based on webhook object type
+    let isCommentWebhook = false;
+    try {
+      const payload = JSON.parse(body);
+      const entries = Array.isArray(payload?.entry) ? payload.entry : [];
+      for (const entry of entries) {
+        if (Array.isArray(entry?.changes)) {
+          for (const change of entry.changes) {
+            if (change?.field === "comments") {
+              isCommentWebhook = true;
+              break;
+            }
+          }
+        }
+        if (isCommentWebhook) break;
+      }
+    } catch {
+      // If JSON parsing fails, fall through to message handler
+    }
+
+    if (isCommentWebhook) {
+      await ctx.runMutation(
+        internal.meta.commentWebhooks.ingestCommentWebhookPayload,
+        { body },
+      );
+    } else {
+      await ctx.runMutation(internal.meta.webhooks.ingestWebhookPayload, {
+        body,
+      });
+    }
+
     return new Response("ok", { status: 200 });
   }),
 });
