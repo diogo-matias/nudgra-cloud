@@ -68,11 +68,7 @@ export function PostPickerModal({
   };
 
   const toggleMedia = (mediaId: string) => {
-    setLocalSelection((prev) =>
-      prev.includes(mediaId)
-        ? prev.filter((id) => id !== mediaId)
-        : [...prev, mediaId],
-    );
+    setLocalSelection((prev) => (prev.includes(mediaId) ? [] : [mediaId]));
   };
 
   const handleRefresh = async () => {

@@ -2,19 +2,73 @@ import { internal } from "../_generated/api";
 import { Id } from "../_generated/dataModel";
 import { MutationCtx } from "../_generated/server";
 
-type QueueAutomatedTextReplyArgs = {
+export type AutomatedQuickReply = {
+  content_type: "text";
+  title: string;
+  payload: string;
+};
+
+export type AutomatedButton =
+  | {
+      type: "web_url";
+      title: string;
+      url: string;
+    }
+  | {
+      type: "postback";
+      title: string;
+      payload: string;
+    };
+
+export type AutomatedMessageDescriptor =
+  | {
+      kind: "text";
+      text: string;
+    }
+  | {
+      kind: "quick_reply";
+      text: string;
+      quickReplies: AutomatedQuickReply[];
+    }
+  | {
+      kind: "button_template";
+      text: string;
+      buttons: AutomatedButton[];
+    };
+
+type QueueAutomatedBaseArgs = {
   workspaceId: Id<"workspaces">;
   instagramAccountId: Id<"instagramAccounts">;
   conversationId: Id<"conversations">;
   contactId: Id<"contacts">;
-  messageText: string;
   automationRuleId: Id<"automationRules"> | null;
   sequenceEnrollmentId: Id<"sequenceEnrollments"> | null;
 };
 
-export async function queueAutomatedTextReply(
+type QueueAutomatedMessageArgs = QueueAutomatedBaseArgs & {
+  messageText: string;
+  requestDescriptor: AutomatedMessageDescriptor;
+};
+
+type QueueAutomatedQuickReplyArgs = QueueAutomatedBaseArgs & {
+  messageText: string;
+  quickReplies: AutomatedQuickReply[];
+};
+
+type QueueAutomatedButtonTemplateArgs = QueueAutomatedBaseArgs & {
+  messageText: string;
+  buttons: AutomatedButton[];
+};
+
+function buildDeliveryPreview(text: string, actions: string[]) {
+  const normalizedText = text.trim();
+  const parts = normalizedText ? [normalizedText] : [];
+  return [...parts, ...actions].join("\n");
+}
+
+async function queueAutomatedMessage(
   ctx: MutationCtx,
-  args: QueueAutomatedTextReplyArgs,
+  args: QueueAutomatedMessageArgs,
 ) {
   const conversation = await ctx.db.get(args.conversationId);
   const account = await ctx.db.get(args.instagramAccountId);
@@ -29,7 +83,9 @@ export async function queueAutomatedTextReply(
     conversation.messagingWindowClosesAt >= now;
 
   const status =
-    !policyWindowOpen || account.status !== "connected" || !account.graphAccessToken
+    !policyWindowOpen ||
+    account.status !== "connected" ||
+    !account.graphAccessToken
       ? account.status === "connected" && account.graphAccessToken
         ? "skipped"
         : "failed"
@@ -51,10 +107,7 @@ export async function queueAutomatedTextReply(
     sequenceEnrollmentId: args.sequenceEnrollmentId,
     status,
     reason,
-    requestPayload: JSON.stringify({
-      recipientContactId: args.contactId,
-      text: args.messageText,
-    }),
+    requestPayload: JSON.stringify(args.requestDescriptor),
     responsePayload: null,
     policyWindowOpen,
     attemptNumber: 1,
@@ -64,9 +117,13 @@ export async function queueAutomatedTextReply(
   });
 
   if (status === "queued") {
-    await ctx.scheduler.runAfter(0, internal.meta.sendActions.performQueuedDelivery, {
-      deliveryAttemptId,
-    });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.meta.sendActions.performQueuedDelivery,
+      {
+        deliveryAttemptId,
+      },
+    );
   } else if (status === "skipped") {
     await ctx.db.patch(args.conversationId, {
       status: "window_closed",
@@ -74,4 +131,106 @@ export async function queueAutomatedTextReply(
   }
 
   return { deliveryAttemptId, status };
+}
+
+export async function queueAutomatedTextReply(
+  ctx: MutationCtx,
+  args: QueueAutomatedBaseArgs & { messageText: string },
+) {
+  const messageText = args.messageText.trim();
+
+  return queueAutomatedMessage(ctx, {
+    ...args,
+    messageText,
+    requestDescriptor: {
+      kind: "text",
+      text: messageText,
+    },
+  });
+}
+
+export async function queueAutomatedQuickReply(
+  ctx: MutationCtx,
+  args: QueueAutomatedQuickReplyArgs,
+) {
+  const messageText = args.messageText.trim();
+  const quickReplies = args.quickReplies
+    .map((reply) => ({
+      content_type: "text" as const,
+      title: reply.title.trim(),
+      payload: reply.payload.trim(),
+    }))
+    .filter((reply) => reply.title.length > 0 && reply.payload.length > 0)
+    .slice(0, 13);
+
+  if (quickReplies.length === 0) {
+    return queueAutomatedTextReply(ctx, {
+      ...args,
+      messageText,
+    });
+  }
+
+  return queueAutomatedMessage(ctx, {
+    ...args,
+    messageText: buildDeliveryPreview(
+      messageText,
+      quickReplies.map((reply) => `[${reply.title}]`),
+    ),
+    requestDescriptor: {
+      kind: "quick_reply",
+      text: messageText,
+      quickReplies,
+    },
+  });
+}
+
+export async function queueAutomatedButtonTemplate(
+  ctx: MutationCtx,
+  args: QueueAutomatedButtonTemplateArgs,
+) {
+  const messageText = args.messageText.trim();
+  const buttons = args.buttons
+    .map((button) =>
+      button.type === "web_url"
+        ? {
+            type: "web_url" as const,
+            title: button.title.trim(),
+            url: button.url.trim(),
+          }
+        : {
+            type: "postback" as const,
+            title: button.title.trim(),
+            payload: button.payload.trim(),
+          },
+    )
+    .filter((button) =>
+      button.type === "web_url"
+        ? button.title.length > 0 && button.url.length > 0
+        : button.title.length > 0 && button.payload.length > 0,
+    )
+    .slice(0, 3);
+
+  if (buttons.length === 0) {
+    return queueAutomatedTextReply(ctx, {
+      ...args,
+      messageText,
+    });
+  }
+
+  return queueAutomatedMessage(ctx, {
+    ...args,
+    messageText: buildDeliveryPreview(
+      messageText,
+      buttons.map((button) =>
+        button.type === "web_url"
+          ? `[${button.title}] ${button.url}`
+          : `[${button.title}]`,
+      ),
+    ),
+    requestDescriptor: {
+      kind: "button_template",
+      text: messageText,
+      buttons,
+    },
+  });
 }

@@ -227,6 +227,13 @@ export const listLogs = query({
       .withIndex("by_received_at")
       .order("desc")
       .take(50);
+    const commentSessions = await ctx.db
+      .query("commentAutomationSessions")
+      .withIndex("by_workspace_id_and_last_step_at", (q) =>
+        q.eq("workspaceId", workspace._id),
+      )
+      .order("desc")
+      .take(50);
 
     const entries: Array<{
       id: string;
@@ -284,6 +291,26 @@ export const listLogs = query({
         details:
           receipt.note ??
           "Raw webhook POST received for the Meta callback endpoint.",
+      });
+    }
+
+    for (const session of commentSessions) {
+      if ((session.guardrailTrippedAt ?? null) === null) {
+        continue;
+      }
+
+      const contact = await ctx.db.get(session.contactId);
+      const automation = await ctx.db.get(session.commentAutomationId);
+      entries.push({
+        id: `comment-guardrail:${session._id}`,
+        time: session.guardrailTrippedAt ?? session.lastStepAt,
+        type: "comment_guardrail",
+        status: "failed",
+        contact: contact?.username ?? null,
+        rule: automation?.name ?? null,
+        details:
+          session.guardrailReason ??
+          "Safety guardrail paused a comment automation session.",
       });
     }
 

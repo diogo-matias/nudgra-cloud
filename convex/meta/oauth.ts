@@ -25,6 +25,7 @@ type InstagramProfileResponse = {
   username?: string;
   name?: string;
   account_type?: string;
+  profile_picture_url?: string;
 };
 
 type GraphApiErrorResponse = {
@@ -40,7 +41,10 @@ function getGraphApiErrorMessage(responseText: string, fallback: string) {
 
   try {
     const parsed = JSON.parse(responseText) as GraphApiErrorResponse;
-    if (typeof parsed.error?.message === "string" && parsed.error.message.trim()) {
+    if (
+      typeof parsed.error?.message === "string" &&
+      parsed.error.message.trim()
+    ) {
       return parsed.error.message.trim();
     }
   } catch {
@@ -109,14 +113,16 @@ async function fetchInstagramProfile(accessToken: string) {
   );
   endpoint.searchParams.set(
     "fields",
-    "user_id,username,name,account_type",
+    "user_id,username,name,account_type,profile_picture_url",
   );
   endpoint.searchParams.set("access_token", accessToken);
 
   const response = await fetch(endpoint);
   const responseText = await response.text();
   if (!response.ok) {
-    throw new Error(responseText || "Failed to fetch Instagram account profile.");
+    throw new Error(
+      responseText || "Failed to fetch Instagram account profile.",
+    );
   }
 
   const parsed = JSON.parse(responseText) as InstagramProfileResponse;
@@ -128,9 +134,12 @@ async function fetchInstagramProfile(accessToken: string) {
   return {
     instagramAccountId,
     metaUserId:
-      parsed.user_id !== undefined ? String(parsed.user_id) : parsed.id ?? null,
+      parsed.user_id !== undefined
+        ? String(parsed.user_id)
+        : (parsed.id ?? null),
     username: parsed.username ?? null,
     name: parsed.name ?? null,
+    profilePictureUrl: parsed.profile_picture_url ?? null,
     accountType:
       parsed.account_type === "BUSINESS"
         ? "business"
@@ -171,6 +180,34 @@ async function subscribeInstagramAccount(args: {
   };
 }
 
+export const refreshProfilePicture = action({
+  args: {},
+  handler: async (ctx) => {
+    const account = await ctx.runQuery(
+      internal.accounts.getConnectedAccountWithToken,
+      {},
+    );
+    if (account === null || !account.graphAccessToken) {
+      throw new Error("No connected Instagram account with a valid token.");
+    }
+
+    const profile = await fetchInstagramProfile(account.graphAccessToken);
+
+    await ctx.runMutation(internal.accounts.patchAccountProfile, {
+      accountId: account.id,
+      profilePictureUrl: profile.profilePictureUrl,
+      username: profile.username,
+      name: profile.name,
+      accountType: profile.accountType,
+    });
+
+    return {
+      profilePictureUrl: profile.profilePictureUrl,
+      username: profile.username,
+    };
+  },
+});
+
 export const exchangeCodeForAccount = action({
   args: {
     code: v.string(),
@@ -178,12 +215,17 @@ export const exchangeCodeForAccount = action({
     redirectUri: v.string(),
   },
   handler: async (ctx, args) => {
-    const session = await ctx.runQuery(internal.accounts.getConnectSessionByState, {
-      state: args.state,
-    });
+    const session = await ctx.runQuery(
+      internal.accounts.getConnectSessionByState,
+      {
+        state: args.state,
+      },
+    );
 
     if (session === null || session.expiresAt < Date.now()) {
-      throw new Error("This Instagram connection session is invalid or expired.");
+      throw new Error(
+        "This Instagram connection session is invalid or expired.",
+      );
     }
 
     const { appId, appSecret } = requireMetaEnv();
@@ -201,10 +243,12 @@ export const exchangeCodeForAccount = action({
         accessToken: tokenExchange.access_token!,
       });
 
-      const graphAccessToken = longLived?.access_token ?? tokenExchange.access_token!;
+      const graphAccessToken =
+        longLived?.access_token ?? tokenExchange.access_token!;
       const tokenExpiresAt =
         typeof (longLived?.expires_in ?? tokenExchange.expires_in) === "number"
-          ? Date.now() + (longLived?.expires_in ?? tokenExchange.expires_in!) * 1000
+          ? Date.now() +
+            (longLived?.expires_in ?? tokenExchange.expires_in!) * 1000
           : null;
 
       const profile = await fetchInstagramProfile(graphAccessToken);
@@ -219,6 +263,7 @@ export const exchangeCodeForAccount = action({
         metaUserId: profile.metaUserId,
         username: profile.username,
         name: profile.name,
+        profilePictureUrl: profile.profilePictureUrl,
         accountType: profile.accountType,
         graphAccessToken,
         tokenExpiresAt,
@@ -226,7 +271,8 @@ export const exchangeCodeForAccount = action({
           ? session.requestedScopes
           : META_REQUESTED_SCOPES,
         webhookSubscriptionStatus: subscription.status,
-        status: subscription.status === "active" ? "connected" : "connection_error",
+        status:
+          subscription.status === "active" ? "connected" : "connection_error",
         lastError: subscription.warning,
         graphApiVersion: META_GRAPH_API_VERSION,
       });

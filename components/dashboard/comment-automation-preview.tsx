@@ -1,6 +1,8 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useState } from "react";
+import type { LinkButtonConfig } from "@/components/dashboard/link-buttons-editor";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Heart,
@@ -8,43 +10,82 @@ import {
   Send,
   Bookmark,
   Image as ImageIcon,
+  ChevronLeft,
+  Phone,
+  Video,
 } from "lucide-react";
 
 type PreviewConfig = {
-  // Comment reply
   commentReplyEnabled: boolean;
   commentReplyTexts: string[];
   triggerKeywords: string[];
-
-  // Opening DM
   openingDmEnabled: boolean;
   openingDmText: string;
   openingDmButtonText: string;
-
-  // Follow gate
   followGateEnabled: boolean;
   followGateText: string;
-
-  // Email collection
   emailCollectionEnabled: boolean;
   emailCollectionText: string;
-
-  // Link delivery
   linkDmText: string;
-  linkUrl: string;
-
-  // Selected post info
+  linkButtons: LinkButtonConfig[];
+  followUpEnabled?: boolean;
+  followUpText?: string;
+  validationIssues?: string[];
   selectedPostThumbnail?: string | null;
   selectedPostCaption?: string | null;
   username?: string;
+  profilePictureUrl?: string | null;
 };
+
+type PreviewButton = {
+  label: string;
+};
+
+type PreviewMessage = {
+  side: "left" | "right";
+  text: ReactNode;
+  buttons?: PreviewButton[];
+  metaLabel?: string;
+};
+
+const FOLLOW_GATE_BUTTONS: PreviewButton[] = [{ label: "I'm following" }];
+
+function AccountAvatar({
+  profilePictureUrl,
+  size = "md",
+}: {
+  profilePictureUrl?: string | null;
+  size?: "sm" | "md" | "lg";
+}) {
+  const sizeClasses = {
+    sm: "size-5",
+    md: "size-7",
+    lg: "size-8",
+  };
+
+  if (profilePictureUrl) {
+    return (
+      <img
+        src={profilePictureUrl}
+        alt="Profile"
+        className={`${sizeClasses[size]} rounded-full object-cover shrink-0`}
+      />
+    );
+  }
+
+  return (
+    <div
+      className={`${sizeClasses[size]} rounded-full bg-gradient-to-br from-purple-500 to-pink-500 shrink-0`}
+    />
+  );
+}
 
 export function CommentAutomationPreview({
   config,
 }: {
   config: PreviewConfig;
 }) {
-  const [activeTab, setActiveTab] = useState("post");
+  const [activeTab, setActiveTab] = useState("dm");
   const username = config.username || "youraccount";
   const commentKeyword =
     config.triggerKeywords.length > 0 ? config.triggerKeywords[0] : "link";
@@ -54,129 +95,149 @@ export function CommentAutomationPreview({
       : "Thanks! Check your DMs.";
 
   return (
-    <div className="flex flex-col items-center">
-      {/* Preview label */}
-      <p className="text-xs text-muted-foreground mb-3 font-medium">Preview</p>
+    <Tabs
+      value={activeTab}
+      onValueChange={setActiveTab}
+      className="flex flex-col items-center"
+    >
+      <p className="mb-3 text-xs font-medium text-muted-foreground">Preview</p>
 
-      {/* Phone mockup */}
       <div className="relative w-[300px]">
-        {/* Phone frame */}
-        <div className="bg-[#1a1a1a] rounded-[2.2rem] p-3 shadow-xl ring-1 ring-white/10">
-          {/* Notch area */}
+        <div className="rounded-[2.2rem] bg-[#1a1a1a] p-3 shadow-xl ring-1 ring-white/10">
           <div className="flex items-center justify-between px-4 pt-1 pb-2">
-            <span className="text-[10px] text-white/80 font-medium tabular-nums">
-              5:22
+            <span className="text-[10px] font-medium tabular-nums text-white/80">
+              9:41
             </span>
-            <div className="w-20 h-5 bg-black rounded-full" />
+            <div className="h-5 w-20 rounded-full bg-black" />
             <div className="flex items-center gap-1">
-              <div className="w-3.5 h-2 border border-white/60 rounded-sm">
-                <div className="w-2 h-1 bg-white/80 rounded-sm m-px" />
+              <div className="flex items-center gap-0.5">
+                <div className="h-1.5 w-1 rounded-sm bg-white/60" />
+                <div className="h-2 w-1 rounded-sm bg-white/60" />
+                <div className="h-2.5 w-1 rounded-sm bg-white/60" />
+                <div className="h-3 w-1 rounded-sm bg-white/80" />
+              </div>
+              <svg
+                className="ml-0.5 size-3 text-white/60"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
+              </svg>
+              <div className="ml-0.5 h-2.5 w-5 rounded-sm border border-white/60">
+                <div className="m-px h-1.5 w-3.5 rounded-sm bg-white/80" />
               </div>
             </div>
           </div>
 
-          {/* Screen content */}
-          <div className="bg-black rounded-[1.6rem] overflow-hidden min-h-[480px] flex flex-col">
-            <Tabs
-              value={activeTab}
-              onValueChange={setActiveTab}
-              className="flex flex-col flex-1"
-            >
-              {/* Tab content area */}
-              <div className="flex-1 overflow-y-auto">
-                <TabsContent value="post" className="mt-0 flex-1">
-                  <PostPreview
-                    username={username}
-                    thumbnail={config.selectedPostThumbnail}
-                    caption={config.selectedPostCaption}
-                  />
-                </TabsContent>
+          <div className="flex min-h-[560px] flex-col overflow-hidden rounded-[1.6rem] bg-black">
+            <div className="flex-1 overflow-y-auto">
+              <TabsContent value="post" className="mt-0 flex-1">
+                <PostPreview
+                  username={username}
+                  profilePictureUrl={config.profilePictureUrl}
+                  thumbnail={config.selectedPostThumbnail}
+                  caption={config.selectedPostCaption}
+                />
+              </TabsContent>
 
-                <TabsContent value="comments" className="mt-0 flex-1">
-                  <CommentsPreview
-                    username={username}
-                    commentKeyword={commentKeyword}
-                    replyEnabled={config.commentReplyEnabled}
-                    replyText={replyText}
-                  />
-                </TabsContent>
+              <TabsContent value="comments" className="mt-0 flex-1">
+                <CommentsPreview
+                  username={username}
+                  profilePictureUrl={config.profilePictureUrl}
+                  commentKeyword={commentKeyword}
+                  replyEnabled={config.commentReplyEnabled}
+                  replyText={replyText}
+                />
+              </TabsContent>
 
-                <TabsContent value="dm" className="mt-0 flex-1">
-                  <DmPreview config={config} username={username} />
-                </TabsContent>
-              </div>
-
-              {/* Bottom tabs */}
-              <TabsList className="bg-[#1a1a1a] border-t border-white/10 rounded-none h-auto p-0 gap-0">
-                <TabsTrigger
-                  value="post"
-                  className="flex-1 rounded-none text-[11px] py-2.5 data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none text-white/50 data-[state=active]:border-b-2 data-[state=active]:border-white"
-                >
-                  Post
-                </TabsTrigger>
-                <TabsTrigger
-                  value="comments"
-                  className="flex-1 rounded-none text-[11px] py-2.5 data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none text-white/50 data-[state=active]:border-b-2 data-[state=active]:border-white"
-                >
-                  Comments
-                </TabsTrigger>
-                <TabsTrigger
-                  value="dm"
-                  className="flex-1 rounded-none text-[11px] py-2.5 data-[state=active]:bg-transparent data-[state=active]:text-white data-[state=active]:shadow-none text-white/50 data-[state=active]:border-b-2 data-[state=active]:border-white"
-                >
-                  DM
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
+              <TabsContent value="dm" className="mt-0 flex-1">
+                <DmPreview
+                  config={config}
+                  username={username}
+                  profilePictureUrl={config.profilePictureUrl}
+                />
+              </TabsContent>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+
+      <TabsList className="mt-4 h-auto gap-1 rounded-lg bg-muted/60 p-1">
+        <TabsTrigger
+          value="post"
+          className="rounded-md px-4 py-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+        >
+          Post
+        </TabsTrigger>
+        <TabsTrigger
+          value="comments"
+          className="rounded-md px-4 py-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+        >
+          Comments
+        </TabsTrigger>
+        <TabsTrigger
+          value="dm"
+          className="rounded-md px-4 py-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
+        >
+          DM
+        </TabsTrigger>
+      </TabsList>
+    </Tabs>
   );
 }
 
-// ── Post preview tab ─────────────────────────────────────────────
-
 function PostPreview({
   username,
+  profilePictureUrl,
   thumbnail,
   caption,
 }: {
   username: string;
+  profilePictureUrl?: string | null;
   thumbnail?: string | null;
   caption?: string | null;
 }) {
   return (
     <div className="flex flex-col">
-      {/* Header bar */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
-        <span className="text-[10px] text-white/50 uppercase tracking-wide">
-          {username.toUpperCase()}
-        </span>
-        <span className="text-xs text-white font-medium">Posts</span>
-        <div className="w-12" />
+      <div className="flex items-center border-b border-white/10 px-3 py-2">
+        <ChevronLeft className="mr-2 size-5 text-white" />
+        <div className="flex flex-1 flex-col items-center">
+          <span className="text-[9px] font-medium tracking-wider text-white/50 uppercase">
+            {username.toUpperCase()}
+          </span>
+          <span className="text-xs font-semibold text-white">Posts</span>
+        </div>
+        <div className="size-5" />
       </div>
 
-      {/* Post header */}
       <div className="flex items-center gap-2 px-3 py-2">
-        <div className="size-7 rounded-full bg-gradient-to-br from-purple-500 to-pink-500" />
-        <span className="text-xs text-white font-medium">{username}</span>
+        <AccountAvatar profilePictureUrl={profilePictureUrl} size="md" />
+        <span className="flex-1 text-xs font-medium text-white">
+          {username}
+        </span>
+        <svg
+          className="size-4 text-white/60"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+        >
+          <circle cx="5" cy="12" r="2" />
+          <circle cx="12" cy="12" r="2" />
+          <circle cx="19" cy="12" r="2" />
+        </svg>
       </div>
 
-      {/* Post image */}
-      <div className="aspect-square bg-[#262626] flex items-center justify-center">
+      <div className="relative flex h-[200px] w-full items-center justify-center overflow-hidden bg-[#262626]">
         {thumbnail ? (
           <img
             src={thumbnail}
             alt="Post"
-            className="w-full h-full object-cover"
+            className="h-full w-full object-cover"
           />
         ) : (
           <ImageIcon className="size-12 text-white/20" />
         )}
       </div>
 
-      {/* Action bar */}
       <div className="flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-3">
           <Heart className="size-5 text-white" />
@@ -186,9 +247,12 @@ function PostPreview({
         <Bookmark className="size-5 text-white" />
       </div>
 
-      {/* Caption */}
+      <div className="px-3 pb-1">
+        <p className="text-[11px] font-semibold text-white">94 likes</p>
+      </div>
+
       <div className="px-3 pb-3">
-        <p className="text-[11px] text-white/80 leading-relaxed">
+        <p className="line-clamp-2 text-[11px] leading-relaxed text-white/80">
           <span className="font-semibold text-white">{username}</span>{" "}
           {caption || "Your post caption will appear here..."}
         </p>
@@ -197,65 +261,63 @@ function PostPreview({
   );
 }
 
-// ── Comments preview tab ─────────────────────────────────────────
-
 function CommentsPreview({
   username,
+  profilePictureUrl,
   commentKeyword,
   replyEnabled,
   replyText,
 }: {
   username: string;
+  profilePictureUrl?: string | null;
   commentKeyword: string;
   replyEnabled: boolean;
   replyText: string;
 }) {
   return (
     <div className="flex flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-white/10">
-        <span className="text-[10px] text-white/50 uppercase tracking-wide">
-          {username.toUpperCase()}
-        </span>
-        <span className="text-xs text-white font-medium">Comments</span>
+      <div className="flex items-center border-b border-white/10 px-3 py-2">
+        <ChevronLeft className="mr-2 size-5 text-white" />
+        <div className="flex flex-1 flex-col items-center">
+          <span className="text-[9px] font-medium tracking-wider text-white/50 uppercase">
+            {username.toUpperCase()}
+          </span>
+          <span className="text-xs font-semibold text-white">Comments</span>
+        </div>
         <Send className="size-4 text-white/60" />
       </div>
 
-      {/* Comment list */}
-      <div className="px-3 py-3 flex flex-col gap-4">
-        {/* User comment */}
+      <div className="flex flex-col gap-4 px-3 py-3">
         <div className="flex gap-2">
-          <div className="size-7 rounded-full bg-[#404040] shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-[11px] text-white leading-relaxed">
-              <span className="font-semibold">Username</span>{" "}
-              <span className="text-white/60">Now</span>
+          <div className="size-7 shrink-0 rounded-full bg-[#404040]" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] leading-relaxed text-white">
+              <span className="font-semibold">user</span>{" "}
+              <span className="text-[10px] text-white/40">Now</span>
             </p>
-            <p className="text-[11px] text-white mt-0.5">{commentKeyword}</p>
-            <p className="text-[10px] text-white/40 mt-1">Reply</p>
+            <p className="mt-0.5 text-[11px] text-white">{commentKeyword}</p>
+            <p className="mt-1 text-[10px] text-white/40">Reply</p>
           </div>
-          <Heart className="size-3 text-white/40 shrink-0 mt-1" />
+          <Heart className="mt-1 size-3 shrink-0 text-white/40" />
         </div>
 
-        {/* Auto-reply */}
         {replyEnabled && (
           <div className="flex gap-2 pl-9">
-            <div className="size-6 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] text-white leading-relaxed">
+            <AccountAvatar profilePictureUrl={profilePictureUrl} size="sm" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] leading-relaxed text-white">
                 <span className="font-semibold">{username}</span>{" "}
-                <span className="text-white/60">Now</span>
+                <span className="text-[10px] text-white/40">Now</span>
               </p>
-              <p className="text-[11px] text-white mt-0.5">{replyText}</p>
-              <p className="text-[10px] text-white/40 mt-1">Reply</p>
+              <p className="mt-0.5 text-[11px] text-white">{replyText}</p>
+              <p className="mt-1 text-[10px] text-white/40">Reply</p>
             </div>
-            <Heart className="size-3 text-white/40 shrink-0 mt-1" />
+            <Heart className="mt-1 size-3 shrink-0 text-white/40" />
           </div>
         )}
       </div>
 
-      {/* Emoji bar */}
-      <div className="flex items-center justify-center gap-3 py-3 border-t border-white/10 mt-auto">
+      <div className="mt-auto flex items-center justify-center gap-3 border-t border-white/10 py-3">
         {["❤️", "🙌", "🔥", "👏", "😢", "😍", "😮", "😂"].map((emoji) => (
           <span key={emoji} className="text-base">
             {emoji}
@@ -263,124 +325,172 @@ function CommentsPreview({
         ))}
       </div>
 
-      {/* Comment input */}
-      <div className="flex items-center gap-2 px-3 py-2 border-t border-white/10">
-        <div className="size-6 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 shrink-0" />
-        <span className="text-[11px] text-white/40 flex-1">
-          Add a comment for username...
+      <div className="flex items-center gap-2 border-t border-white/10 px-3 py-2">
+        <AccountAvatar profilePictureUrl={profilePictureUrl} size="sm" />
+        <span className="flex-1 text-[11px] text-white/40">
+          Add a comment for {username}...
         </span>
       </div>
     </div>
   );
 }
 
-// ── DM preview tab ───────────────────────────────────────────────
+function buildDmMessages(config: PreviewConfig): PreviewMessage[] {
+  const messages: PreviewMessage[] = [];
+
+  if (config.openingDmEnabled && config.openingDmText) {
+    messages.push({
+      side: "left",
+      text: config.openingDmText,
+      buttons: config.openingDmButtonText
+        ? [{ label: config.openingDmButtonText }]
+        : undefined,
+    });
+
+    if (config.openingDmButtonText) {
+      messages.push({
+        side: "right",
+        text: config.openingDmButtonText,
+      });
+    }
+  }
+
+  if (config.followGateEnabled && config.followGateText) {
+    messages.push({
+      side: "left",
+      text: config.followGateText,
+      buttons: FOLLOW_GATE_BUTTONS,
+    });
+    messages.push({ side: "right", text: "I'm following" });
+  }
+
+  if (config.emailCollectionEnabled && config.emailCollectionText) {
+    messages.push({ side: "left", text: config.emailCollectionText });
+    messages.push({ side: "right", text: "example@mail.com" });
+  }
+
+  if (config.linkDmText || config.linkButtons.length > 0) {
+    messages.push({
+      side: "left",
+      text: config.linkDmText || "Tap below to open your link.",
+      buttons: config.linkButtons.length > 0
+        ? config.linkButtons.map((button) => ({ label: button.label }))
+        : undefined,
+    });
+  }
+
+  if (
+    config.followUpEnabled &&
+    config.followUpText &&
+    config.linkButtons.length > 0
+  ) {
+    messages.push({
+      side: "left",
+      text: config.followUpText,
+      metaLabel: "6 hours later if no click is tracked",
+    });
+  }
+
+  return messages;
+}
 
 function DmPreview({
   config,
   username,
+  profilePictureUrl,
 }: {
   config: PreviewConfig;
   username: string;
+  profilePictureUrl?: string | null;
 }) {
+  const messages = buildDmMessages(config);
+
   return (
-    <div className="flex flex-col min-h-[440px]">
-      {/* DM Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
-        <div className="size-7 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 shrink-0" />
-        <span className="text-xs text-white font-medium flex-1">
+    <div className="flex min-h-[440px] flex-col">
+      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
+        <ChevronLeft className="size-5 shrink-0 text-white" />
+        <AccountAvatar profilePictureUrl={profilePictureUrl} size="md" />
+        <span className="flex-1 text-xs font-semibold text-white">
           {username}
         </span>
+        <Phone className="size-4 shrink-0 text-white/60" />
+        <Video className="ml-1 size-4 shrink-0 text-white/60" />
       </div>
 
-      {/* Messages */}
-      <div className="flex-1 px-3 py-3 flex flex-col gap-3 overflow-y-auto">
-        {/* Opening DM */}
-        {config.openingDmEnabled && config.openingDmText && (
-          <>
-            <MessageBubble side="left" avatar>
-              {config.openingDmText}
-            </MessageBubble>
+      <div className="flex flex-1 flex-col justify-end overflow-y-auto px-3 py-3">
+        <div className="flex flex-col">
+          {config.validationIssues && config.validationIssues.length > 0 ? (
+            <div className="mb-3 rounded-2xl border border-amber-500/20 bg-amber-400/10 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-200">
+                Blocked configuration
+              </p>
+              <div className="mt-1 flex flex-col gap-1">
+                {config.validationIssues.map((issue) => (
+                  <p key={issue} className="text-[11px] leading-relaxed text-amber-100/90">
+                    {issue}
+                  </p>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
-            {/* Button */}
-            {config.openingDmButtonText && (
-              <>
-                <MessageBubble side="left" avatar isButton>
-                  {config.openingDmButtonText}
+          {messages.map((message, index) => {
+            const next = messages[index + 1];
+            const isLastInGroup =
+              message.side === "left" && (!next || next.side !== "left");
+            const sameGroupAsNext = next && next.side === message.side;
+
+            return (
+              <div key={index} className={sameGroupAsNext ? "mb-1" : "mb-3"}>
+                {message.metaLabel ? (
+                  <p className="mb-2 text-center text-[10px] uppercase tracking-wide text-white/35">
+                    {message.metaLabel}
+                  </p>
+                ) : null}
+                <MessageBubble
+                  side={message.side}
+                  avatar={isLastInGroup}
+                  buttons={message.buttons}
+                  profilePictureUrl={profilePictureUrl}
+                >
+                  {message.text}
                 </MessageBubble>
-
-                {/* User clicks the button */}
-                <MessageBubble side="right">
-                  {config.openingDmButtonText}
-                </MessageBubble>
-              </>
-            )}
-          </>
-        )}
-
-        {/* Email collection */}
-        {config.emailCollectionEnabled && config.emailCollectionText && (
-          <>
-            <MessageBubble side="left" avatar>
-              {config.emailCollectionText}
-            </MessageBubble>
-
-            <MessageBubble side="right">example@mail.com</MessageBubble>
-          </>
-        )}
-
-        {/* Follow gate */}
-        {config.followGateEnabled && config.followGateText && (
-          <>
-            <MessageBubble side="left" avatar>
-              {config.followGateText}
-            </MessageBubble>
-
-            <MessageBubble side="left" avatar isButton>
-              Following
-            </MessageBubble>
-
-            <MessageBubble side="right">Following</MessageBubble>
-          </>
-        )}
-
-        {/* Link delivery */}
-        {config.linkDmText && (
-          <MessageBubble side="left" avatar>
-            {config.linkDmText}
-            {config.linkUrl && (
-              <>
-                {"\n\n"}
-                <span className="text-blue-400 underline">
-                  {config.linkUrl}
-                </span>
-              </>
-            )}
-          </MessageBubble>
-        )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Input bar */}
-      <div className="flex items-center gap-2 px-3 py-2 border-t border-white/10">
-        <div className="size-6 rounded-full bg-blue-500 flex items-center justify-center shrink-0">
+      <div className="flex items-center gap-2 border-t border-white/10 px-3 py-2.5">
+        <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-blue-500 to-blue-400">
           <svg
             className="size-3.5 text-white"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
           >
-            <circle cx="12" cy="12" r="10" strokeWidth="2" />
+            <path
+              d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <circle cx="12" cy="13" r="4" strokeWidth="2" />
           </svg>
         </div>
-        <span className="text-[11px] text-white/40 flex-1">Message...</span>
-        <div className="flex items-center gap-2 text-white/40">
+        <span className="flex-1 text-[11px] text-white/40">Message...</span>
+        <div className="flex items-center gap-2.5 text-white/40">
           <svg
             className="size-4"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
           >
-            <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth="1.5" />
+            <path
+              d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
           </svg>
           <svg
             className="size-4"
@@ -388,8 +498,33 @@ function DmPreview({
             viewBox="0 0 24 24"
             stroke="currentColor"
           >
-            <circle cx="12" cy="12" r="9" strokeWidth="1.5" />
-            <path d="M12 8v8M8 12h8" strokeWidth="1.5" />
+            <rect x="4" y="4" width="16" height="16" rx="2" strokeWidth="1.5" />
+            <circle
+              cx="8.5"
+              cy="8.5"
+              r="1.5"
+              fill="currentColor"
+              stroke="none"
+            />
+            <path
+              d="M4 15l4-4 3 3 5-5 4 4"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <svg
+            className="size-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </div>
       </div>
@@ -397,41 +532,26 @@ function DmPreview({
   );
 }
 
-// ── Message bubble component ─────────────────────────────────────
-
 function MessageBubble({
   children,
   side,
   avatar,
-  isButton,
+  buttons,
+  profilePictureUrl,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   side: "left" | "right";
   avatar?: boolean;
-  isButton?: boolean;
+  buttons?: PreviewButton[];
+  profilePictureUrl?: string | null;
 }) {
   if (side === "right") {
     return (
       <div className="flex justify-end">
-        <div className="bg-purple-600 rounded-2xl rounded-br-md px-3 py-2 max-w-[80%]">
-          <p className="text-[11px] text-white whitespace-pre-wrap leading-relaxed">
+        <div className="max-w-[80%] rounded-2xl rounded-br-md bg-purple-600 px-3 py-2">
+          <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-white">
             {children}
           </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (isButton) {
-    return (
-      <div className="flex items-end gap-1.5">
-        {avatar ? (
-          <div className="size-5 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 shrink-0" />
-        ) : (
-          <div className="size-5 shrink-0" />
-        )}
-        <div className="border border-white/20 rounded-2xl px-3 py-2 max-w-[80%]">
-          <p className="text-[11px] text-white text-center">{children}</p>
         </div>
       </div>
     );
@@ -440,14 +560,26 @@ function MessageBubble({
   return (
     <div className="flex items-end gap-1.5">
       {avatar ? (
-        <div className="size-5 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 shrink-0" />
+        <AccountAvatar profilePictureUrl={profilePictureUrl} size="sm" />
       ) : (
         <div className="size-5 shrink-0" />
       )}
-      <div className="bg-[#262626] rounded-2xl rounded-bl-md px-3 py-2 max-w-[80%]">
-        <p className="text-[11px] text-white whitespace-pre-wrap leading-relaxed">
+      <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-[#262626] px-3 py-2">
+        <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-white">
           {children}
         </p>
+        {buttons && buttons.length > 0 ? (
+          <div className="mt-3 flex flex-col gap-2">
+            {buttons.map((button) => (
+              <div
+                key={button.label}
+                className="rounded-xl border border-white/8 bg-white/8 px-3 py-2.5 text-center text-[11px] font-semibold text-white"
+              >
+                {button.label}
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );

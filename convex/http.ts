@@ -53,10 +53,9 @@ http.route({
     }
 
     if (isCommentWebhook) {
-      await ctx.runMutation(
-        internal.meta.commentWebhooks.ingestCommentWebhookPayload,
-        { body },
-      );
+      await ctx.runAction(internal.meta.commentWebhooks.ingestCommentWebhookPayload, {
+        body,
+      });
     } else {
       await ctx.runMutation(internal.meta.webhooks.ingestWebhookPayload, {
         body,

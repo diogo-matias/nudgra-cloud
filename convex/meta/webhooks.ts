@@ -1,3 +1,4 @@
+import { internal } from "../_generated/api";
 import { internalMutation, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { createSequenceEnrollment } from "../automations/sequences";
@@ -19,6 +20,14 @@ type MessagingItem = {
     text?: string;
     is_echo?: boolean;
     reply_to?: unknown;
+    quick_reply?: {
+      payload?: string;
+    };
+  };
+  postback?: {
+    title?: string;
+    payload?: string;
+    mid?: string;
   };
 };
 
@@ -246,13 +255,27 @@ export const ingestWebhookPayload = internalMutation({
       }
 
       const messageTime = item.timestamp ?? item.time ?? Date.now();
+      const hasMessage = Boolean(item.message);
       const isStoryReply = Boolean(item.message?.reply_to);
-      const eventType = isStoryReply ? "story_reply" : "message";
+      const isPostback = Boolean(item.postback);
+      const isQuickReply = Boolean(item.message?.quick_reply);
+      if (!hasMessage && !isPostback) {
+        ignored += 1;
+        continue;
+      }
+
+      const eventType = isPostback
+        ? "postback"
+        : isStoryReply
+          ? "story_reply"
+          : "message";
       const text =
         typeof item.message?.text === "string"
           ? item.message.text.trim()
-          : null;
-      const metaMessageId = item.message?.mid ?? null;
+          : typeof item.postback?.title === "string"
+            ? item.postback.title.trim()
+            : null;
+      const metaMessageId = item.message?.mid ?? item.postback?.mid ?? null;
       const deliveryKey =
         metaMessageId ??
         `${instagramAccountExternalId}:${item.sender.id}:${messageTime}:${eventType}`;
@@ -379,15 +402,18 @@ export const ingestWebhookPayload = internalMutation({
         )
         .take(50);
 
-      const matchedRule = activeRules.find((rule) =>
-        matchesAutomationRule({
-          triggerType: rule.triggerType,
-          matchType: rule.matchType,
-          keywords: rule.keywords,
-          messageText: text,
-          isStoryReply,
-        }),
-      );
+      const matchedRule =
+        !isPostback && !isQuickReply
+          ? activeRules.find((rule) =>
+              matchesAutomationRule({
+                triggerType: rule.triggerType,
+                matchType: rule.matchType,
+                keywords: rule.keywords,
+                messageText: text,
+                isStoryReply,
+              }),
+            )
+          : undefined;
 
       if (matchedRule) {
         await ctx.db.patch(matchedRule._id, {
@@ -443,19 +469,59 @@ export const ingestWebhookPayload = internalMutation({
 
       // Check for active comment automation sessions and advance them
       if (!matchedRule) {
-        const activeSession = await ctx.db
+        const recentSessions = await ctx.db
           .query("commentAutomationSessions")
           .withIndex("by_conversation_id", (q) =>
             q.eq("conversationId", conversationId),
           )
-          .unique();
+          .order("desc")
+          .take(10);
+        const activeSession = recentSessions.find(
+          (session) =>
+            session.currentStep !== "completed" &&
+            session.currentStep !== "link_sent" &&
+            session.currentStep !== "guardrail_tripped",
+        );
 
-        if (
-          activeSession &&
-          activeSession.currentStep !== "completed" &&
-          activeSession.currentStep !== "link_sent"
-        ) {
-          await advanceCommentAutomationSession(ctx, activeSession._id, text);
+        if (activeSession) {
+          const inboundInteraction = {
+            hasMessage,
+            text,
+            postbackPayload:
+              typeof item.postback?.payload === "string"
+                ? item.postback.payload.trim()
+                : null,
+            quickReplyPayload:
+              typeof item.message?.quick_reply?.payload === "string"
+                ? item.message.quick_reply.payload.trim()
+                : null,
+            deliveryKey,
+          };
+          const sessionAutomation = await ctx.db.get(
+            activeSession.commentAutomationId,
+          );
+
+          if (sessionAutomation?.followGateEnabled) {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.automations.commentFlow.processInboundCommentAutomationInteraction,
+              {
+                sessionId: activeSession._id,
+                ...inboundInteraction,
+              },
+            );
+          } else {
+            await advanceCommentAutomationSession(
+              ctx,
+              activeSession._id,
+              {
+                hasMessage: inboundInteraction.hasMessage,
+                text: inboundInteraction.text,
+                postbackPayload: inboundInteraction.postbackPayload,
+                quickReplyPayload: inboundInteraction.quickReplyPayload,
+              },
+            );
+          }
         }
       }
 

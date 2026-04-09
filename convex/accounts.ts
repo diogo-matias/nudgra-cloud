@@ -1,4 +1,9 @@
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import {
@@ -17,6 +22,7 @@ function serializeAccount(account: Doc<"instagramAccounts">) {
     instagramAccountId: account.instagramAccountId,
     username: account.username,
     name: account.name,
+    profilePictureUrl: account.profilePictureUrl ?? null,
     accountType: account.accountType,
     status: account.status,
     scopes: account.scopes,
@@ -39,8 +45,8 @@ export const getCurrentAccountStatus = query({
         account: null,
         isMetaConfigured: Boolean(
           process.env.META_APP_ID &&
-            process.env.META_APP_SECRET &&
-            process.env.META_VERIFY_TOKEN,
+          process.env.META_APP_SECRET &&
+          process.env.META_VERIFY_TOKEN,
         ),
       };
     }
@@ -58,8 +64,8 @@ export const getCurrentAccountStatus = query({
           : null,
       isMetaConfigured: Boolean(
         process.env.META_APP_ID &&
-          process.env.META_APP_SECRET &&
-          process.env.META_VERIFY_TOKEN,
+        process.env.META_APP_SECRET &&
+        process.env.META_VERIFY_TOKEN,
       ),
     };
   },
@@ -124,6 +130,72 @@ export const disconnectCurrentAccount = mutation({
   },
 });
 
+export const emergencyDisconnectAccount = internalMutation({
+  args: {
+    accountId: v.id("instagramAccounts"),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.accountId);
+    if (account === null) {
+      return { disconnected: false };
+    }
+
+    const disconnectedAt = Date.now();
+
+    await ctx.db.patch(account._id, {
+      status: "disconnected",
+      graphAccessToken: null,
+      webhookSubscriptionStatus: "disabled",
+      disconnectedAt,
+      lastError: args.reason ?? "Emergency disconnect triggered from CLI.",
+    });
+
+    const activeEnrollments = await ctx.db
+      .query("sequenceEnrollments")
+      .withIndex("by_workspace_id_and_status", (q) =>
+        q.eq("workspaceId", account.workspaceId).eq("status", "active"),
+      )
+      .take(100);
+
+    for (const enrollment of activeEnrollments) {
+      await ctx.db.patch(enrollment._id, {
+        status: "stopped",
+        stopReason: args.reason ?? "Instagram account disconnected",
+      });
+    }
+
+    return { disconnected: true, disconnectedAt };
+  },
+});
+
+export const emergencyReconnectAccount = internalMutation({
+  args: {
+    accountId: v.id("instagramAccounts"),
+    graphAccessToken: v.string(),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.accountId);
+    if (account === null) {
+      return { reconnected: false };
+    }
+
+    const connectedAt = Date.now();
+
+    await ctx.db.patch(account._id, {
+      status: "connected",
+      graphAccessToken: args.graphAccessToken,
+      webhookSubscriptionStatus: "active",
+      disconnectedAt: null,
+      connectedAt,
+      lastError: args.reason ?? null,
+    });
+
+    return { reconnected: true, connectedAt };
+  },
+});
+
 export const getConnectSessionByState = internalQuery({
   args: { state: v.string() },
   handler: async (ctx, args) => {
@@ -141,6 +213,7 @@ export const upsertConnectedAccount = internalMutation({
     metaUserId: nullableString,
     username: nullableString,
     name: nullableString,
+    profilePictureUrl: nullableString,
     accountType: v.union(
       v.literal("business"),
       v.literal("creator"),
@@ -174,7 +247,9 @@ export const upsertConnectedAccount = internalMutation({
 
     const existingAccount = await ctx.db
       .query("instagramAccounts")
-      .withIndex("by_workspace_id", (q) => q.eq("workspaceId", session.workspaceId))
+      .withIndex("by_workspace_id", (q) =>
+        q.eq("workspaceId", session.workspaceId),
+      )
       .unique();
 
     const patch = {
@@ -183,6 +258,7 @@ export const upsertConnectedAccount = internalMutation({
       metaUserId: args.metaUserId,
       username: args.username,
       name: args.name,
+      profilePictureUrl: args.profilePictureUrl,
       accountType: args.accountType,
       status: args.status,
       graphAccessToken: args.graphAccessToken,
@@ -211,6 +287,55 @@ export const upsertConnectedAccount = internalMutation({
     });
 
     return { accountId };
+  },
+});
+
+export const getConnectedAccountWithToken = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const workspace = await requireCurrentWorkspace(ctx);
+    const account = await getWorkspaceInstagramAccount(ctx, workspace._id);
+    if (account === null || account.status === "disconnected") {
+      return null;
+    }
+    return {
+      id: account._id,
+      instagramAccountId: account.instagramAccountId,
+      graphAccessToken: account.graphAccessToken,
+    };
+  },
+});
+
+export const patchAccountProfile = internalMutation({
+  args: {
+    accountId: v.id("instagramAccounts"),
+    profilePictureUrl: nullableString,
+    username: v.optional(nullableString),
+    name: v.optional(nullableString),
+    accountType: v.optional(
+      v.union(
+        v.literal("business"),
+        v.literal("creator"),
+        v.literal("unknown"),
+      ),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const patch: Record<string, string | null> = {
+      profilePictureUrl: args.profilePictureUrl,
+    };
+    if (args.username !== undefined) {
+      patch.username = args.username;
+    }
+    if (args.name !== undefined) {
+      patch.name = args.name;
+    }
+    await ctx.db.patch(args.accountId, {
+      ...patch,
+      ...(args.accountType !== undefined
+        ? { accountType: args.accountType }
+        : {}),
+    });
   },
 });
 

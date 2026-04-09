@@ -7,6 +7,12 @@ const nullableNumber = v.union(v.number(), v.null());
 const nullableInstagramAccountId = v.union(v.id("instagramAccounts"), v.null());
 const nullableWorkspaceId = v.union(v.id("workspaces"), v.null());
 const nullableAutomationRuleId = v.union(v.id("automationRules"), v.null());
+const nullableCommentAutomationId = v.union(v.id("commentAutomations"), v.null());
+const nullableCommentAutomationSessionId = v.union(
+  v.id("commentAutomationSessions"),
+  v.null(),
+);
+const nullableConversationId = v.union(v.id("conversations"), v.null());
 const nullableSequenceDefinitionId = v.union(
   v.id("sequenceDefinitions"),
   v.null(),
@@ -19,6 +25,10 @@ const nullableSequenceEnrollmentId = v.union(
 const sequenceStepValidator = v.object({
   delayMinutes: v.number(),
   messageText: v.string(),
+});
+const linkButtonValidator = v.object({
+  label: v.string(),
+  url: v.string(),
 });
 
 export default defineSchema({
@@ -50,6 +60,7 @@ export default defineSchema({
     metaUserId: nullableString,
     username: nullableString,
     name: nullableString,
+    profilePictureUrl: v.optional(nullableString),
     accountType: v.union(
       v.literal("business"),
       v.literal("creator"),
@@ -306,6 +317,7 @@ export default defineSchema({
     // Comment filter
     commentFilter: v.union(v.literal("specific_words"), v.literal("any_word")),
     triggerKeywords: v.array(v.string()),
+    triggerKeywordLabels: v.optional(v.array(v.string())),
 
     // Comment reply (optional auto-reply under the post)
     commentReplyEnabled: v.boolean(),
@@ -327,10 +339,20 @@ export default defineSchema({
     // DM flow — final link delivery
     linkDmText: v.string(),
     linkUrl: v.string(),
+    linkButtonText: v.optional(v.string()),
+    linkButtons: v.optional(v.array(linkButtonValidator)),
 
     // DM flow — follow-up if they don't click
     followUpEnabled: v.boolean(),
     followUpText: v.string(),
+
+    nextPostActivatedAt: v.optional(nullableNumber),
+    nextLockedMediaId: v.optional(nullableString),
+    nextLockedAt: v.optional(nullableNumber),
+    guardrailTrippedAt: v.optional(nullableNumber),
+    guardrailReason: v.optional(nullableString),
+    guardrailSessionId: v.optional(nullableCommentAutomationSessionId),
+    guardrailConversationId: v.optional(nullableConversationId),
 
     // Stats
     triggerCount: v.number(),
@@ -368,6 +390,7 @@ export default defineSchema({
       v.literal("email_requested"),
       v.literal("awaiting_email"),
       v.literal("link_sent"),
+      v.literal("guardrail_tripped"),
       v.literal("completed"),
     ),
     collectedEmail: nullableString,
@@ -375,11 +398,37 @@ export default defineSchema({
     mediaId: nullableString,
     startedAt: v.number(),
     lastStepAt: v.number(),
+    outboundMessageCount: v.optional(v.number()),
+    followGateInputMode: v.optional(
+      v.union(v.literal("button"), v.literal("reply"), v.null()),
+    ),
+    lastInboundDeliveryKey: v.optional(nullableString),
+    guardrailTrippedAt: v.optional(nullableNumber),
+    guardrailReason: v.optional(nullableString),
+    linkSentAt: v.optional(nullableNumber),
+    linkClickedAt: v.optional(nullableNumber),
+    followUpScheduledAt: v.optional(nullableNumber),
+    followUpSentAt: v.optional(nullableNumber),
   })
     .index("by_comment_automation_id", ["commentAutomationId"])
     .index("by_contact_id_and_comment_automation_id", [
       "contactId",
       "commentAutomationId",
     ])
-    .index("by_conversation_id", ["conversationId"]),
+    .index("by_conversation_id", ["conversationId"])
+    .index("by_workspace_id_and_last_step_at", ["workspaceId", "lastStepAt"]),
+  commentAutomationTrackedLinks: defineTable({
+    workspaceId: v.id("workspaces"),
+    instagramAccountId: v.id("instagramAccounts"),
+    commentAutomationId: nullableCommentAutomationId,
+    sessionId: v.id("commentAutomationSessions"),
+    token: v.string(),
+    destinationUrl: v.string(),
+    label: v.string(),
+    buttonIndex: v.number(),
+    clickedAt: nullableNumber,
+    createdAt: v.number(),
+  })
+    .index("by_token", ["token"])
+    .index("by_session_id", ["sessionId"]),
 });

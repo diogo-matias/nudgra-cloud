@@ -4,16 +4,20 @@ import { useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import {
+  AlertTriangle,
   Plus,
   Zap,
   ToggleLeft,
   ToggleRight,
   MessageSquare,
-  MessageCircle,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
 import { AutomationTypeModal } from "@/components/dashboard/automation-type-modal";
+import {
+  formatCommentAutomationTimestamp,
+  getCommentAutomationLatestSessionSummary,
+} from "@/lib/comment-automation-ui";
 
 export default function AutomationsPage() {
   const [showTypeModal, setShowTypeModal] = useState(false);
@@ -111,11 +115,23 @@ export default function AutomationsPage() {
                     <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground bg-muted border border-border rounded px-1.5 py-0.5">
                       Comment DM
                     </span>
+                    {automation.validationIssues.length > 0 ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                        <AlertTriangle className="size-3" />
+                        Needs fix
+                      </span>
+                    ) : null}
+                    {automation.guardrailTrippedAt ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-destructive/20 bg-destructive/5 px-2 py-0.5 text-[10px] font-medium text-destructive">
+                        <AlertTriangle className="size-3" />
+                        Safety paused
+                      </span>
+                    ) : null}
                   </div>
 
                   <div className="flex flex-wrap gap-1.5">
-                    {automation.triggerKeywords.length > 0 ? (
-                      automation.triggerKeywords.slice(0, 5).map((keyword) => (
+                    {automation.triggerKeywordLabels.length > 0 ? (
+                      automation.triggerKeywordLabels.slice(0, 5).map((keyword) => (
                         <span
                           key={keyword}
                           className="text-xs font-mono text-muted-foreground bg-muted border border-border rounded-md px-1.5 py-0.5"
@@ -135,9 +151,30 @@ export default function AutomationsPage() {
                       ? `${automation.selectedMediaIds.length} post${automation.selectedMediaIds.length !== 1 ? "s" : ""}`
                       : automation.postScope === "any"
                         ? "Any post or reel"
-                        : "Next post or reel"}
+                        : automation.nextLockedMediaId
+                          ? `Locked next post - ${formatCommentAutomationTimestamp(automation.nextLockedAt)}`
+                          : automation.status === "live"
+                            ? "Waiting for the next published post"
+                            : "Next post or reel"}
                     {automation.linkUrl ? ` · Link: ${automation.linkUrl}` : ""}
                   </p>
+                  {automation.latestSession ? (
+                    <p className="text-xs text-muted-foreground max-w-xl truncate">
+                      {getCommentAutomationLatestSessionSummary(
+                        automation.latestSession,
+                      )}
+                    </p>
+                  ) : null}
+                  {automation.validationIssues.length > 0 ? (
+                    <p className="text-xs text-amber-800">
+                      {automation.validationIssues[0]}
+                    </p>
+                  ) : null}
+                  {automation.guardrailReason ? (
+                    <p className="text-xs text-destructive">
+                      {automation.guardrailReason}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="flex items-center gap-3 shrink-0">
@@ -150,10 +187,18 @@ export default function AutomationsPage() {
 
                   <button
                     type="button"
+                    disabled={
+                      automation.status !== "live" &&
+                      automation.validationIssues.length > 0
+                    }
                     title={
-                      automation.status === "live"
-                        ? "Pause automation"
-                        : "Go live"
+                      automation.status !== "live" &&
+                      automation.validationIssues.length > 0
+                        ? automation.validationIssues[0] ??
+                          "Automation must be fixed before going live."
+                        : automation.status === "live"
+                          ? "Pause automation"
+                          : "Go live"
                     }
                     onClick={(event) => {
                       event.preventDefault();
@@ -163,7 +208,7 @@ export default function AutomationsPage() {
                           automation.status === "live" ? "paused" : "live",
                       });
                     }}
-                    className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+                    className="text-muted-foreground hover:text-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
                   >
                     {automation.status === "live" ? (
                       <ToggleRight className="size-5 text-primary" />

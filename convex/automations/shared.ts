@@ -1,9 +1,35 @@
+function sanitizeKeywordLabel(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
 export function normalizeKeyword(value: string) {
-  return value.trim().toLowerCase().replace(/\s+/g, " ");
+  return sanitizeKeywordLabel(value).toLowerCase();
+}
+
+export function getKeywordEntries(values: string[]) {
+  const seen = new Set<string>();
+  const entries: Array<{ label: string; normalized: string }> = [];
+
+  for (const value of values) {
+    const label = sanitizeKeywordLabel(value);
+    const normalized = normalizeKeyword(value);
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+    entries.push({ label, normalized });
+  }
+
+  return entries;
 }
 
 export function normalizeKeywordList(values: string[]) {
-  return [...new Set(values.map(normalizeKeyword).filter(Boolean))];
+  return getKeywordEntries(values).map((entry) => entry.normalized);
+}
+
+export function getKeywordLabelList(values: string[]) {
+  return getKeywordEntries(values).map((entry) => entry.label);
 }
 
 export function matchesAutomationRule(args: {
