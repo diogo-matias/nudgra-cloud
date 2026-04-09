@@ -19,6 +19,14 @@ type MessagingItem = {
     text?: string;
     is_echo?: boolean;
     reply_to?: unknown;
+    quick_reply?: {
+      payload?: string;
+    };
+  };
+  postback?: {
+    title?: string;
+    payload?: string;
+    mid?: string;
   };
 };
 
@@ -247,12 +255,20 @@ export const ingestWebhookPayload = internalMutation({
 
       const messageTime = item.timestamp ?? item.time ?? Date.now();
       const isStoryReply = Boolean(item.message?.reply_to);
-      const eventType = isStoryReply ? "story_reply" : "message";
+      const isPostback = Boolean(item.postback);
+      const isQuickReply = Boolean(item.message?.quick_reply);
+      const eventType = isPostback
+        ? "postback"
+        : isStoryReply
+          ? "story_reply"
+          : "message";
       const text =
         typeof item.message?.text === "string"
           ? item.message.text.trim()
-          : null;
-      const metaMessageId = item.message?.mid ?? null;
+          : typeof item.postback?.title === "string"
+            ? item.postback.title.trim()
+            : null;
+      const metaMessageId = item.message?.mid ?? item.postback?.mid ?? null;
       const deliveryKey =
         metaMessageId ??
         `${instagramAccountExternalId}:${item.sender.id}:${messageTime}:${eventType}`;
@@ -379,15 +395,18 @@ export const ingestWebhookPayload = internalMutation({
         )
         .take(50);
 
-      const matchedRule = activeRules.find((rule) =>
-        matchesAutomationRule({
-          triggerType: rule.triggerType,
-          matchType: rule.matchType,
-          keywords: rule.keywords,
-          messageText: text,
-          isStoryReply,
-        }),
-      );
+      const matchedRule =
+        !isPostback && !isQuickReply
+          ? activeRules.find((rule) =>
+              matchesAutomationRule({
+                triggerType: rule.triggerType,
+                matchType: rule.matchType,
+                keywords: rule.keywords,
+                messageText: text,
+                isStoryReply,
+              }),
+            )
+          : undefined;
 
       if (matchedRule) {
         await ctx.db.patch(matchedRule._id, {
@@ -443,18 +462,20 @@ export const ingestWebhookPayload = internalMutation({
 
       // Check for active comment automation sessions and advance them
       if (!matchedRule) {
-        const activeSession = await ctx.db
+        const recentSessions = await ctx.db
           .query("commentAutomationSessions")
           .withIndex("by_conversation_id", (q) =>
             q.eq("conversationId", conversationId),
           )
-          .unique();
+          .order("desc")
+          .take(10);
+        const activeSession = recentSessions.find(
+          (session) =>
+            session.currentStep !== "completed" &&
+            session.currentStep !== "link_sent",
+        );
 
-        if (
-          activeSession &&
-          activeSession.currentStep !== "completed" &&
-          activeSession.currentStep !== "link_sent"
-        ) {
+        if (activeSession) {
           await advanceCommentAutomationSession(ctx, activeSession._id, text);
         }
       }
