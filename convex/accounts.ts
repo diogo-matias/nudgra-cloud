@@ -130,6 +130,72 @@ export const disconnectCurrentAccount = mutation({
   },
 });
 
+export const emergencyDisconnectAccount = internalMutation({
+  args: {
+    accountId: v.id("instagramAccounts"),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.accountId);
+    if (account === null) {
+      return { disconnected: false };
+    }
+
+    const disconnectedAt = Date.now();
+
+    await ctx.db.patch(account._id, {
+      status: "disconnected",
+      graphAccessToken: null,
+      webhookSubscriptionStatus: "disabled",
+      disconnectedAt,
+      lastError: args.reason ?? "Emergency disconnect triggered from CLI.",
+    });
+
+    const activeEnrollments = await ctx.db
+      .query("sequenceEnrollments")
+      .withIndex("by_workspace_id_and_status", (q) =>
+        q.eq("workspaceId", account.workspaceId).eq("status", "active"),
+      )
+      .take(100);
+
+    for (const enrollment of activeEnrollments) {
+      await ctx.db.patch(enrollment._id, {
+        status: "stopped",
+        stopReason: args.reason ?? "Instagram account disconnected",
+      });
+    }
+
+    return { disconnected: true, disconnectedAt };
+  },
+});
+
+export const emergencyReconnectAccount = internalMutation({
+  args: {
+    accountId: v.id("instagramAccounts"),
+    graphAccessToken: v.string(),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.accountId);
+    if (account === null) {
+      return { reconnected: false };
+    }
+
+    const connectedAt = Date.now();
+
+    await ctx.db.patch(account._id, {
+      status: "connected",
+      graphAccessToken: args.graphAccessToken,
+      webhookSubscriptionStatus: "active",
+      disconnectedAt: null,
+      connectedAt,
+      lastError: args.reason ?? null,
+    });
+
+    return { reconnected: true, connectedAt };
+  },
+});
+
 export const getConnectSessionByState = internalQuery({
   args: { state: v.string() },
   handler: async (ctx, args) => {

@@ -12,6 +12,7 @@ import type * as accounts from "../accounts.js";
 import type * as auth from "../auth.js";
 import type * as automations_commentAutomations from "../automations/commentAutomations.js";
 import type * as automations_commentFlow from "../automations/commentFlow.js";
+import type * as automations_commentTracking from "../automations/commentTracking.js";
 import type * as automations_rules from "../automations/rules.js";
 import type * as automations_sequences from "../automations/sequences.js";
 import type * as automations_shared from "../automations/shared.js";
@@ -41,6 +42,7 @@ declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   "automations/commentAutomations": typeof automations_commentAutomations;
   "automations/commentFlow": typeof automations_commentFlow;
+  "automations/commentTracking": typeof automations_commentTracking;
   "automations/rules": typeof automations_rules;
   "automations/sequences": typeof automations_sequences;
   "automations/shared": typeof automations_shared;

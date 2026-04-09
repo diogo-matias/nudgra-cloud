@@ -1,3 +1,4 @@
+import { internal } from "../_generated/api";
 import { internalMutation, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { createSequenceEnrollment } from "../automations/sequences";
@@ -254,9 +255,15 @@ export const ingestWebhookPayload = internalMutation({
       }
 
       const messageTime = item.timestamp ?? item.time ?? Date.now();
+      const hasMessage = Boolean(item.message);
       const isStoryReply = Boolean(item.message?.reply_to);
       const isPostback = Boolean(item.postback);
       const isQuickReply = Boolean(item.message?.quick_reply);
+      if (!hasMessage && !isPostback) {
+        ignored += 1;
+        continue;
+      }
+
       const eventType = isPostback
         ? "postback"
         : isStoryReply
@@ -472,11 +479,49 @@ export const ingestWebhookPayload = internalMutation({
         const activeSession = recentSessions.find(
           (session) =>
             session.currentStep !== "completed" &&
-            session.currentStep !== "link_sent",
+            session.currentStep !== "link_sent" &&
+            session.currentStep !== "guardrail_tripped",
         );
 
         if (activeSession) {
-          await advanceCommentAutomationSession(ctx, activeSession._id, text);
+          const inboundInteraction = {
+            hasMessage,
+            text,
+            postbackPayload:
+              typeof item.postback?.payload === "string"
+                ? item.postback.payload.trim()
+                : null,
+            quickReplyPayload:
+              typeof item.message?.quick_reply?.payload === "string"
+                ? item.message.quick_reply.payload.trim()
+                : null,
+            deliveryKey,
+          };
+          const sessionAutomation = await ctx.db.get(
+            activeSession.commentAutomationId,
+          );
+
+          if (sessionAutomation?.followGateEnabled) {
+            await ctx.scheduler.runAfter(
+              0,
+              internal.automations.commentFlow.processInboundCommentAutomationInteraction,
+              {
+                sessionId: activeSession._id,
+                ...inboundInteraction,
+              },
+            );
+          } else {
+            await advanceCommentAutomationSession(
+              ctx,
+              activeSession._id,
+              {
+                hasMessage: inboundInteraction.hasMessage,
+                text: inboundInteraction.text,
+                postbackPayload: inboundInteraction.postbackPayload,
+                quickReplyPayload: inboundInteraction.quickReplyPayload,
+              },
+            );
+          }
         }
       }
 

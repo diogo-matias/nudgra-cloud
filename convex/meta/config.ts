@@ -21,3 +21,12 @@ export function requireMetaEnv() {
 
   return { appId, appSecret, verifyToken };
 }
+
+export function requireSiteUrl() {
+  const siteUrl = process.env.SITE_URL;
+  if (!siteUrl) {
+    throw new Error("Missing SITE_URL. Configure SITE_URL for tracked links.");
+  }
+
+  return siteUrl;
+}
