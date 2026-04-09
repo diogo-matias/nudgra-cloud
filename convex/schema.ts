@@ -20,6 +20,10 @@ const sequenceStepValidator = v.object({
   delayMinutes: v.number(),
   messageText: v.string(),
 });
+const linkButtonValidator = v.object({
+  label: v.string(),
+  url: v.string(),
+});
 
 export default defineSchema({
   ...authTables,
@@ -328,6 +332,8 @@ export default defineSchema({
     // DM flow — final link delivery
     linkDmText: v.string(),
     linkUrl: v.string(),
+    linkButtonText: v.optional(v.string()),
+    linkButtons: v.optional(v.array(linkButtonValidator)),
 
     // DM flow — follow-up if they don't click
     followUpEnabled: v.boolean(),

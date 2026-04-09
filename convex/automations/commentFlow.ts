@@ -1,8 +1,10 @@
 import { Doc, Id } from "../_generated/dataModel";
 import { MutationCtx } from "../_generated/server";
-import { queueAutomatedTextReply } from "../meta/sendHelpers";
-
-// ── Types ────────────────────────────────────────────────────────
+import {
+  type AutomatedButton,
+  queueAutomatedButtonTemplate,
+  queueAutomatedTextReply,
+} from "../meta/sendHelpers";
 
 type CommentAutomation = Doc<"commentAutomations">;
 
@@ -16,14 +18,59 @@ type StartSessionArgs = {
   mediaId: string | null;
 };
 
-// ── Helpers ──────────────────────────────────────────────────────
+const FOLLOW_GATE_CONFIRM_BUTTON_TEXT = "I'm following";
+const DEFAULT_LINK_BUTTON_TEXT = "Open link";
+const DEFAULT_LINK_MESSAGE = "Tap below to open your link.";
+const DEFAULT_LINK_BATCH_MESSAGE = "More links";
+const OPENING_DM_POSTBACK_PAYLOAD = "comment_automation:opening_dm";
+const FOLLOW_GATE_POSTBACK_PAYLOAD = "comment_automation:follow_gate";
 
-function pickRandomCommentReply(texts: string[]) {
-  if (texts.length === 0) return null;
-  return texts[Math.floor(Math.random() * texts.length)];
+function chunkButtons(buttons: AutomatedButton[], size: number) {
+  const chunks: AutomatedButton[][] = [];
+
+  for (let index = 0; index < buttons.length; index += size) {
+    chunks.push(buttons.slice(index, index + size));
+  }
+
+  return chunks;
 }
 
-// ── Start a new comment automation session ───────────────────────
+function getLinkButtons(automation: CommentAutomation): AutomatedButton[] {
+  if (automation.linkButtons && automation.linkButtons.length > 0) {
+    return automation.linkButtons.map((button) => ({
+      type: "web_url" as const,
+      title: button.label.trim() || DEFAULT_LINK_BUTTON_TEXT,
+      url: button.url.trim(),
+    }));
+  }
+
+  const legacyUrl = automation.linkUrl.trim();
+  if (!legacyUrl) {
+    return [];
+  }
+
+  return [
+    {
+      type: "web_url" as const,
+      title: automation.linkButtonText?.trim() || DEFAULT_LINK_BUTTON_TEXT,
+      url: legacyUrl,
+    },
+  ];
+}
+
+async function getLatestSessionsForContactAutomation(
+  ctx: MutationCtx,
+  contactId: Id<"contacts">,
+  commentAutomationId: Id<"commentAutomations">,
+) {
+  return await ctx.db
+    .query("commentAutomationSessions")
+    .withIndex("by_contact_id_and_comment_automation_id", (q) =>
+      q.eq("contactId", contactId).eq("commentAutomationId", commentAutomationId),
+    )
+    .order("desc")
+    .take(10);
+}
 
 export async function startCommentAutomationSession(
   ctx: MutationCtx,
@@ -32,22 +79,19 @@ export async function startCommentAutomationSession(
 ) {
   const now = Date.now();
 
-  // Check if there's already an active session for this contact + automation
-  const existingSession = await ctx.db
-    .query("commentAutomationSessions")
-    .withIndex("by_contact_id_and_comment_automation_id", (q) =>
-      q
-        .eq("contactId", args.contactId)
-        .eq("commentAutomationId", args.commentAutomationId),
-    )
-    .unique();
+  const existingSessions = await getLatestSessionsForContactAutomation(
+    ctx,
+    args.contactId,
+    args.commentAutomationId,
+  );
+  const activeSession = existingSessions.find(
+    (session) => session.currentStep !== "completed",
+  );
 
-  if (existingSession && existingSession.currentStep !== "completed") {
-    // Already has an active session, don't start a new one
+  if (activeSession) {
     return null;
   }
 
-  // Determine the first step based on what's enabled
   let firstStep: Doc<"commentAutomationSessions">["currentStep"];
 
   if (automation.openingDmEnabled && automation.openingDmText.trim()) {
@@ -77,34 +121,26 @@ export async function startCommentAutomationSession(
     lastStepAt: now,
   });
 
-  // Send the first DM
   if (firstStep === "opening_dm_sent") {
-    // Build the opening DM text with the button label appended as a prompt
-    const dmText = automation.openingDmText;
-    await queueAutomatedTextReply(ctx, {
+    await sendOpeningDm(ctx, {
       workspaceId: args.workspaceId,
       instagramAccountId: args.instagramAccountId,
       conversationId: args.conversationId,
       contactId: args.contactId,
-      messageText: dmText,
-      automationRuleId: null,
-      sequenceEnrollmentId: null,
+      automation,
     });
 
-    // Update session to awaiting button click
     await ctx.db.patch(sessionId, {
       currentStep: "awaiting_button_click",
       lastStepAt: Date.now(),
     });
   } else if (firstStep === "follow_gate_sent") {
-    await queueAutomatedTextReply(ctx, {
+    await sendFollowGate(ctx, {
       workspaceId: args.workspaceId,
       instagramAccountId: args.instagramAccountId,
       conversationId: args.conversationId,
       contactId: args.contactId,
-      messageText: automation.followGateText,
-      automationRuleId: null,
-      sequenceEnrollmentId: null,
+      automation,
     });
 
     await ctx.db.patch(sessionId, {
@@ -127,28 +163,9 @@ export async function startCommentAutomationSession(
       lastStepAt: Date.now(),
     });
   } else {
-    // Send link directly
-    const linkMessage = automation.linkUrl
-      ? `${automation.linkDmText}\n\n${automation.linkUrl}`
-      : automation.linkDmText;
-
-    await queueAutomatedTextReply(ctx, {
-      workspaceId: args.workspaceId,
-      instagramAccountId: args.instagramAccountId,
-      conversationId: args.conversationId,
-      contactId: args.contactId,
-      messageText: linkMessage,
-      automationRuleId: null,
-      sequenceEnrollmentId: null,
-    });
-
-    await ctx.db.patch(sessionId, {
-      currentStep: "completed",
-      lastStepAt: Date.now(),
-    });
+    await sendLinkDm(ctx, { sessionId, automation });
   }
 
-  // Update trigger count
   await ctx.db.patch(automation._id, {
     triggerCount: automation.triggerCount + 1,
     lastTriggeredAt: now,
@@ -156,8 +173,6 @@ export async function startCommentAutomationSession(
 
   return sessionId;
 }
-
-// ── Advance session on inbound DM ────────────────────────────────
 
 export async function advanceCommentAutomationSession(
   ctx: MutationCtx,
@@ -174,24 +189,22 @@ export async function advanceCommentAutomationSession(
   }
 
   const automation = await ctx.db.get(session.commentAutomationId);
-  if (!automation) return null;
+  if (!automation) {
+    return null;
+  }
 
   const now = Date.now();
 
   switch (session.currentStep) {
     case "awaiting_button_click":
     case "opening_dm_sent": {
-      // User responded to the opening DM (clicked the button / replied)
-      // Next: follow gate or email or link
       if (automation.followGateEnabled && automation.followGateText.trim()) {
-        await queueAutomatedTextReply(ctx, {
+        await sendFollowGate(ctx, {
           workspaceId: session.workspaceId,
           instagramAccountId: session.instagramAccountId,
           conversationId: session.conversationId,
           contactId: session.contactId,
-          messageText: automation.followGateText,
-          automationRuleId: null,
-          sequenceEnrollmentId: null,
+          automation,
         });
         await ctx.db.patch(sessionId, {
           currentStep: "awaiting_follow",
@@ -215,17 +228,13 @@ export async function advanceCommentAutomationSession(
           lastStepAt: now,
         });
       } else {
-        // Send link directly
-        await sendLinkDm(ctx, session, automation);
+        await sendLinkDm(ctx, { sessionId, automation });
       }
       break;
     }
 
     case "follow_gate_sent":
     case "awaiting_follow": {
-      // User responded after follow gate prompt
-      // In real implementation, we'd check follower status via API
-      // For now, any response advances to next step
       if (
         automation.emailCollectionEnabled &&
         automation.emailCollectionText.trim()
@@ -244,22 +253,20 @@ export async function advanceCommentAutomationSession(
           lastStepAt: now,
         });
       } else {
-        await sendLinkDm(ctx, session, automation);
+        await sendLinkDm(ctx, { sessionId, automation });
       }
       break;
     }
 
     case "email_requested":
     case "awaiting_email": {
-      // User responded with their email
       const email = extractEmail(inboundText);
       await ctx.db.patch(sessionId, {
         collectedEmail: email,
         lastStepAt: now,
       });
 
-      // Send the link regardless
-      await sendLinkDm(ctx, session, automation);
+      await sendLinkDm(ctx, { sessionId, automation });
       break;
     }
 
@@ -270,26 +277,118 @@ export async function advanceCommentAutomationSession(
   return session.currentStep;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────
-
-async function sendLinkDm(
+async function sendOpeningDm(
   ctx: MutationCtx,
-  session: Doc<"commentAutomationSessions">,
-  automation: Doc<"commentAutomations">,
+  args: {
+    workspaceId: Id<"workspaces">;
+    instagramAccountId: Id<"instagramAccounts">;
+    conversationId: Id<"conversations">;
+    contactId: Id<"contacts">;
+    automation: CommentAutomation;
+  },
 ) {
-  const linkMessage = automation.linkUrl
-    ? `${automation.linkDmText}\n\n${automation.linkUrl}`
-    : automation.linkDmText;
+  const buttonTitle = args.automation.openingDmButtonText.trim();
 
-  await queueAutomatedTextReply(ctx, {
-    workspaceId: session.workspaceId,
-    instagramAccountId: session.instagramAccountId,
-    conversationId: session.conversationId,
-    contactId: session.contactId,
-    messageText: linkMessage,
+  if (!buttonTitle) {
+    await queueAutomatedTextReply(ctx, {
+      workspaceId: args.workspaceId,
+      instagramAccountId: args.instagramAccountId,
+      conversationId: args.conversationId,
+      contactId: args.contactId,
+      messageText: args.automation.openingDmText,
+      automationRuleId: null,
+      sequenceEnrollmentId: null,
+    });
+    return;
+  }
+
+  await queueAutomatedButtonTemplate(ctx, {
+    workspaceId: args.workspaceId,
+    instagramAccountId: args.instagramAccountId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    messageText: args.automation.openingDmText,
+    buttons: [
+      {
+        type: "postback",
+        title: buttonTitle,
+        payload: OPENING_DM_POSTBACK_PAYLOAD,
+      },
+    ],
     automationRuleId: null,
     sequenceEnrollmentId: null,
   });
+}
+
+async function sendFollowGate(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    instagramAccountId: Id<"instagramAccounts">;
+    conversationId: Id<"conversations">;
+    contactId: Id<"contacts">;
+    automation: CommentAutomation;
+  },
+) {
+  await queueAutomatedButtonTemplate(ctx, {
+    workspaceId: args.workspaceId,
+    instagramAccountId: args.instagramAccountId,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    messageText: args.automation.followGateText,
+    buttons: [
+      {
+        type: "postback",
+        title: FOLLOW_GATE_CONFIRM_BUTTON_TEXT,
+        payload: FOLLOW_GATE_POSTBACK_PAYLOAD,
+      },
+    ],
+    automationRuleId: null,
+    sequenceEnrollmentId: null,
+  });
+}
+
+async function sendLinkDm(
+  ctx: MutationCtx,
+  args: {
+    sessionId: Id<"commentAutomationSessions">;
+    automation: CommentAutomation;
+  },
+) {
+  const session = await ctx.db.get(args.sessionId);
+  if (!session) {
+    return;
+  }
+
+  const messageText = args.automation.linkDmText.trim() || DEFAULT_LINK_MESSAGE;
+  const linkButtons = getLinkButtons(args.automation);
+
+  if (linkButtons.length > 0) {
+    const buttonBatches = chunkButtons(linkButtons, 3);
+
+    for (const [index, buttons] of buttonBatches.entries()) {
+      await queueAutomatedButtonTemplate(ctx, {
+        workspaceId: session.workspaceId,
+        instagramAccountId: session.instagramAccountId,
+        conversationId: session.conversationId,
+        contactId: session.contactId,
+        messageText: index === 0 ? messageText : DEFAULT_LINK_BATCH_MESSAGE,
+        buttons,
+        automationRuleId: null,
+        sequenceEnrollmentId: null,
+      });
+    }
+  } else {
+    await queueAutomatedTextReply(ctx, {
+      workspaceId: session.workspaceId,
+      instagramAccountId: session.instagramAccountId,
+      conversationId: session.conversationId,
+      contactId: session.contactId,
+      messageText,
+      automationRuleId: null,
+      sequenceEnrollmentId: null,
+    });
+  }
 
   await ctx.db.patch(session._id, {
     currentStep: "completed",
@@ -298,28 +397,26 @@ async function sendLinkDm(
 }
 
 function extractEmail(text: string | null): string | null {
-  if (!text) return null;
+  if (!text) {
+    return null;
+  }
+
   const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
   const match = text.match(emailRegex);
   return match ? match[0].toLowerCase() : null;
 }
-
-// ── Match a comment against active comment automations ───────────
 
 export function matchesCommentAutomation(args: {
   automation: CommentAutomation;
   mediaId: string;
   commentText: string | null;
 }) {
-  // Check media scope
   if (args.automation.postScope === "specific") {
     if (!args.automation.selectedMediaIds.includes(args.mediaId)) {
       return false;
     }
   }
-  // "any" and "next" scopes match any post
 
-  // Check comment text
   if (args.automation.commentFilter === "any_word") {
     return true;
   }

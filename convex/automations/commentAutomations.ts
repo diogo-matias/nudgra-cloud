@@ -1,16 +1,77 @@
 import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import { Doc, Id } from "../_generated/dataModel";
+import { Doc } from "../_generated/dataModel";
 import {
-  requireCurrentWorkspace,
   requireConnectedInstagramAccount,
   requireCurrentUserId,
+  requireCurrentWorkspace,
 } from "../lib/auth";
 import { normalizeKeywordList } from "./shared";
 
-// ── Serialization ────────────────────────────────────────────────
+const linkButtonValidator = v.object({
+  label: v.string(),
+  url: v.string(),
+});
+
+type LinkButtonInput = {
+  label: string;
+  url: string;
+};
+
+function normalizeLinkButtonsInput(linkButtons: LinkButtonInput[]) {
+  return linkButtons
+    .map((button) => ({
+      label: button.label.trim(),
+      url: button.url.trim(),
+    }))
+    .filter((button) => button.label.length > 0 && button.url.length > 0);
+}
+
+function getNormalizedLinkButtonsFromArgs(args: {
+  linkButtons: LinkButtonInput[];
+  linkUrl: string;
+  linkButtonText: string;
+}) {
+  if (args.linkButtons.length > 0) {
+    return normalizeLinkButtonsInput(args.linkButtons);
+  }
+
+  if (args.linkUrl.trim().length > 0) {
+    return normalizeLinkButtonsInput([
+      {
+        label: args.linkButtonText,
+        url: args.linkUrl,
+      },
+    ]);
+  }
+
+  return [];
+}
+
+function getSerializedLinkButtons(automation: Doc<"commentAutomations">) {
+  if (automation.linkButtons && automation.linkButtons.length > 0) {
+    return automation.linkButtons;
+  }
+
+  if (automation.linkUrl.trim().length > 0) {
+    return [
+      {
+        label: automation.linkButtonText ?? "Open link",
+        url: automation.linkUrl,
+      },
+    ];
+  }
+
+  return [];
+}
+
+function getPrimaryLink(linkButtons: LinkButtonInput[]) {
+  return linkButtons[0] ?? null;
+}
 
 function serializeCommentAutomation(automation: Doc<"commentAutomations">) {
+  const linkButtons = getSerializedLinkButtons(automation);
+
   return {
     id: automation._id,
     name: automation.name,
@@ -30,14 +91,14 @@ function serializeCommentAutomation(automation: Doc<"commentAutomations">) {
     emailCollectionText: automation.emailCollectionText,
     linkDmText: automation.linkDmText,
     linkUrl: automation.linkUrl,
+    linkButtonText: automation.linkButtonText ?? "Open link",
+    linkButtons,
     followUpEnabled: automation.followUpEnabled,
     followUpText: automation.followUpText,
     triggerCount: automation.triggerCount,
     lastTriggeredAt: automation.lastTriggeredAt,
   };
 }
-
-// ── Queries ──────────────────────────────────────────────────────
 
 export const listCommentAutomations = query({
   args: {},
@@ -60,11 +121,10 @@ export const getCommentAutomationById = query({
     if (automation === null || automation.workspaceId !== workspace._id) {
       return null;
     }
+
     return serializeCommentAutomation(automation);
   },
 });
-
-// ── Mutations ────────────────────────────────────────────────────
 
 export const createCommentAutomation = mutation({
   args: {
@@ -87,7 +147,9 @@ export const createCommentAutomation = mutation({
     emailCollectionEnabled: v.boolean(),
     emailCollectionText: v.string(),
     linkDmText: v.string(),
+    linkButtons: v.array(linkButtonValidator),
     linkUrl: v.string(),
+    linkButtonText: v.string(),
     followUpEnabled: v.boolean(),
     followUpText: v.string(),
     goLive: v.boolean(),
@@ -119,7 +181,10 @@ export const createCommentAutomation = mutation({
       throw new Error("Add at least one trigger keyword.");
     }
 
-    if (!args.linkDmText.trim() && !args.linkUrl.trim()) {
+    const normalizedLinkButtons = getNormalizedLinkButtonsFromArgs(args);
+    const primaryLink = getPrimaryLink(normalizedLinkButtons);
+
+    if (!args.linkDmText.trim() && normalizedLinkButtons.length === 0) {
       throw new Error("A link message or URL is required.");
     }
 
@@ -135,7 +200,7 @@ export const createCommentAutomation = mutation({
       triggerKeywords: normalizedKeywords,
       commentReplyEnabled: args.commentReplyEnabled,
       commentReplyTexts: args.commentReplyTexts
-        .map((t) => t.trim())
+        .map((text) => text.trim())
         .filter(Boolean),
       openingDmEnabled: args.openingDmEnabled,
       openingDmText: args.openingDmText.trim(),
@@ -146,7 +211,11 @@ export const createCommentAutomation = mutation({
       emailCollectionEnabled: args.emailCollectionEnabled,
       emailCollectionText: args.emailCollectionText.trim(),
       linkDmText: args.linkDmText.trim(),
-      linkUrl: args.linkUrl.trim(),
+      linkUrl: primaryLink?.url ?? args.linkUrl.trim(),
+      linkButtonText:
+        primaryLink?.label || args.linkButtonText.trim() || "Open link",
+      linkButtons:
+        normalizedLinkButtons.length > 0 ? normalizedLinkButtons : undefined,
       followUpEnabled: args.followUpEnabled,
       followUpText: args.followUpText.trim(),
       triggerCount: 0,
@@ -179,7 +248,9 @@ export const updateCommentAutomation = mutation({
     emailCollectionEnabled: v.boolean(),
     emailCollectionText: v.string(),
     linkDmText: v.string(),
+    linkButtons: v.array(linkButtonValidator),
     linkUrl: v.string(),
+    linkButtonText: v.string(),
     followUpEnabled: v.boolean(),
     followUpText: v.string(),
   },
@@ -194,6 +265,8 @@ export const updateCommentAutomation = mutation({
       args.commentFilter === "specific_words"
         ? normalizeKeywordList(args.triggerKeywords)
         : [];
+    const normalizedLinkButtons = getNormalizedLinkButtonsFromArgs(args);
+    const primaryLink = getPrimaryLink(normalizedLinkButtons);
 
     await ctx.db.patch(automation._id, {
       name: args.name.trim(),
@@ -203,7 +276,7 @@ export const updateCommentAutomation = mutation({
       triggerKeywords: normalizedKeywords,
       commentReplyEnabled: args.commentReplyEnabled,
       commentReplyTexts: args.commentReplyTexts
-        .map((t) => t.trim())
+        .map((text) => text.trim())
         .filter(Boolean),
       openingDmEnabled: args.openingDmEnabled,
       openingDmText: args.openingDmText.trim(),
@@ -214,7 +287,11 @@ export const updateCommentAutomation = mutation({
       emailCollectionEnabled: args.emailCollectionEnabled,
       emailCollectionText: args.emailCollectionText.trim(),
       linkDmText: args.linkDmText.trim(),
-      linkUrl: args.linkUrl.trim(),
+      linkUrl: primaryLink?.url ?? args.linkUrl.trim(),
+      linkButtonText:
+        primaryLink?.label || args.linkButtonText.trim() || "Open link",
+      linkButtons:
+        normalizedLinkButtons.length > 0 ? normalizedLinkButtons : undefined,
       followUpEnabled: args.followUpEnabled,
       followUpText: args.followUpText.trim(),
     });
