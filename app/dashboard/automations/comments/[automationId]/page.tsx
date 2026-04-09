@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
@@ -18,6 +18,10 @@ import { Id } from "@/convex/_generated/dataModel";
 import { Switch } from "@/components/ui/switch";
 import { PostPickerModal } from "@/components/dashboard/post-picker-modal";
 import { CommentAutomationPreview } from "@/components/dashboard/comment-automation-preview";
+import {
+  LinkButtonsEditor,
+  type LinkButtonConfig,
+} from "@/components/dashboard/link-buttons-editor";
 import { OpeningDmInfoModal } from "@/components/dashboard/opening-dm-info-modal";
 
 type PostScope = "specific" | "any" | "next";
@@ -25,7 +29,6 @@ type CommentFilter = "specific_words" | "any_word";
 
 export default function CommentAutomationDetailPage() {
   const params = useParams<{ automationId: string }>();
-  const router = useRouter();
   const automationId = params.automationId as Id<"commentAutomations">;
 
   const automation = useQuery(
@@ -61,7 +64,7 @@ export default function CommentAutomationDetailPage() {
   const [emailCollectionEnabled, setEmailCollectionEnabled] = useState(false);
   const [emailCollectionText, setEmailCollectionText] = useState("");
   const [linkDmText, setLinkDmText] = useState("");
-  const [linkUrl, setLinkUrl] = useState("");
+  const [linkButtons, setLinkButtons] = useState<LinkButtonConfig[]>([]);
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
   const [followUpText, setFollowUpText] = useState("");
 
@@ -96,7 +99,7 @@ export default function CommentAutomationDetailPage() {
       setEmailCollectionEnabled(automation.emailCollectionEnabled);
       setEmailCollectionText(automation.emailCollectionText);
       setLinkDmText(automation.linkDmText);
-      setLinkUrl(automation.linkUrl);
+      setLinkButtons(automation.linkButtons);
       setFollowUpEnabled(automation.followUpEnabled);
       setFollowUpText(automation.followUpText);
       setInitialized(true);
@@ -141,13 +144,14 @@ export default function CommentAutomationDetailPage() {
     name.trim().length > 0 &&
     (postScope !== "specific" || selectedMediaIds.length > 0) &&
     (commentFilter !== "specific_words" || triggerKeywords.length > 0) &&
-    (linkDmText.trim().length > 0 || linkUrl.trim().length > 0);
+    (linkDmText.trim().length > 0 || linkButtons.length > 0);
 
   async function handleSave() {
     if (!isValid || isSubmitting) return;
     setIsSubmitting(true);
 
     try {
+      const primaryLink = linkButtons[0] ?? null;
       await updateAutomation({
         automationId,
         name,
@@ -165,7 +169,9 @@ export default function CommentAutomationDetailPage() {
         emailCollectionEnabled,
         emailCollectionText,
         linkDmText,
-        linkUrl,
+        linkButtons,
+        linkUrl: primaryLink?.url ?? "",
+        linkButtonText: primaryLink?.label ?? "Open link",
         followUpEnabled,
         followUpText,
       });
@@ -199,7 +205,7 @@ export default function CommentAutomationDetailPage() {
       setEmailCollectionEnabled(automation.emailCollectionEnabled);
       setEmailCollectionText(automation.emailCollectionText);
       setLinkDmText(automation.linkDmText);
-      setLinkUrl(automation.linkUrl);
+      setLinkButtons(automation.linkButtons);
       setFollowUpEnabled(automation.followUpEnabled);
       setFollowUpText(automation.followUpText);
     }
@@ -436,7 +442,25 @@ export default function CommentAutomationDetailPage() {
               {/* Link delivery */}
               <DetailCard title="Link delivery">
                 <DetailRow label="Message" value={automation.linkDmText} />
-                <DetailRow label="URL" value={automation.linkUrl} />
+                {automation.linkButtons.length > 0 ? (
+                  <div className="flex flex-col gap-2">
+                    {automation.linkButtons.map((link, index) => (
+                      <div
+                        key={`${link.label}-${link.url}-${index}`}
+                        className="rounded-lg border border-border bg-background px-3 py-2"
+                      >
+                        <p className="text-sm font-medium text-foreground">
+                          {link.label}
+                        </p>
+                        <p className="mt-1 break-all text-xs text-muted-foreground">
+                          {link.url}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <DetailRow label="Links" value="—" />
+                )}
               </DetailCard>
 
               {/* Follow-up */}
@@ -463,7 +487,7 @@ export default function CommentAutomationDetailPage() {
                 emailCollectionEnabled: automation.emailCollectionEnabled,
                 emailCollectionText: automation.emailCollectionText,
                 linkDmText: automation.linkDmText,
-                linkUrl: automation.linkUrl,
+                linkButtons: automation.linkButtons,
                 username: accountStatus?.account?.username ?? undefined,
                 profilePictureUrl:
                   accountStatus?.account?.profilePictureUrl ?? undefined,
@@ -916,33 +940,10 @@ export default function CommentAutomationDetailPage() {
                     />
                   </div>
 
-                  {linkUrl ? (
-                    <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2">
-                      <input
-                        type="url"
-                        value={linkUrl}
-                        onChange={(e) => setLinkUrl(e.target.value)}
-                        placeholder="https://example.com/your-link"
-                        className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setLinkUrl("")}
-                        className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                      >
-                        <X className="size-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setLinkUrl("https://")}
-                      className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
-                    >
-                      <Plus className="size-4" />
-                      Add A Link
-                    </button>
-                  )}
+                  <LinkButtonsEditor
+                    links={linkButtons}
+                    onChange={setLinkButtons}
+                  />
                 </div>
               </div>
 
@@ -988,7 +989,7 @@ export default function CommentAutomationDetailPage() {
               emailCollectionEnabled,
               emailCollectionText,
               linkDmText,
-              linkUrl,
+              linkButtons,
               username: accountStatus?.account?.username ?? undefined,
               profilePictureUrl:
                 accountStatus?.account?.profilePictureUrl ?? undefined,

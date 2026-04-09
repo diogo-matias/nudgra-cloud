@@ -1,6 +1,8 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useState } from "react";
+import type { LinkButtonConfig } from "@/components/dashboard/link-buttons-editor";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Heart,
@@ -14,34 +16,37 @@ import {
 } from "lucide-react";
 
 type PreviewConfig = {
-  // Comment reply
   commentReplyEnabled: boolean;
   commentReplyTexts: string[];
   triggerKeywords: string[];
-
-  // Opening DM
   openingDmEnabled: boolean;
   openingDmText: string;
   openingDmButtonText: string;
-
-  // Follow gate
   followGateEnabled: boolean;
   followGateText: string;
-
-  // Email collection
   emailCollectionEnabled: boolean;
   emailCollectionText: string;
-
-  // Link delivery
   linkDmText: string;
-  linkUrl: string;
-
-  // Selected post info
+  linkButtons: LinkButtonConfig[];
   selectedPostThumbnail?: string | null;
   selectedPostCaption?: string | null;
   username?: string;
   profilePictureUrl?: string | null;
 };
+
+type PreviewButton = {
+  label: string;
+};
+
+type PreviewMessage = {
+  side: "left" | "right";
+  text: ReactNode;
+  buttons?: PreviewButton[];
+};
+
+const FOLLOW_GATE_BUTTONS: PreviewButton[] = [
+  { label: "I'm following" },
+];
 
 function AccountAvatar({
   profilePictureUrl,
@@ -93,42 +98,36 @@ export function CommentAutomationPreview({
       onValueChange={setActiveTab}
       className="flex flex-col items-center"
     >
-      {/* Preview label */}
-      <p className="text-xs text-muted-foreground mb-3 font-medium">Preview</p>
+      <p className="mb-3 text-xs font-medium text-muted-foreground">Preview</p>
 
-      {/* Phone mockup */}
       <div className="relative w-[300px]">
-        {/* Phone frame */}
-        <div className="bg-[#1a1a1a] rounded-[2.2rem] p-3 shadow-xl ring-1 ring-white/10">
-          {/* Notch area */}
+        <div className="rounded-[2.2rem] bg-[#1a1a1a] p-3 shadow-xl ring-1 ring-white/10">
           <div className="flex items-center justify-between px-4 pt-1 pb-2">
-            <span className="text-[10px] text-white/80 font-medium tabular-nums">
+            <span className="text-[10px] font-medium tabular-nums text-white/80">
               9:41
             </span>
-            <div className="w-20 h-5 bg-black rounded-full" />
+            <div className="h-5 w-20 rounded-full bg-black" />
             <div className="flex items-center gap-1">
               <div className="flex items-center gap-0.5">
-                <div className="w-1 h-1.5 bg-white/60 rounded-sm" />
-                <div className="w-1 h-2 bg-white/60 rounded-sm" />
-                <div className="w-1 h-2.5 bg-white/60 rounded-sm" />
-                <div className="w-1 h-3 bg-white/80 rounded-sm" />
+                <div className="h-1.5 w-1 rounded-sm bg-white/60" />
+                <div className="h-2 w-1 rounded-sm bg-white/60" />
+                <div className="h-2.5 w-1 rounded-sm bg-white/60" />
+                <div className="h-3 w-1 rounded-sm bg-white/80" />
               </div>
               <svg
-                className="size-3 text-white/60 ml-0.5"
+                className="ml-0.5 size-3 text-white/60"
                 viewBox="0 0 24 24"
                 fill="currentColor"
               >
                 <path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z" />
               </svg>
-              <div className="w-5 h-2.5 border border-white/60 rounded-sm ml-0.5">
-                <div className="w-3.5 h-1.5 bg-white/80 rounded-sm m-px" />
+              <div className="ml-0.5 h-2.5 w-5 rounded-sm border border-white/60">
+                <div className="m-px h-1.5 w-3.5 rounded-sm bg-white/80" />
               </div>
             </div>
           </div>
 
-          {/* Screen content */}
-          <div className="bg-black rounded-[1.6rem] overflow-hidden min-h-[560px] flex flex-col">
-            {/* Tab content area */}
+          <div className="flex min-h-[560px] flex-col overflow-hidden rounded-[1.6rem] bg-black">
             <div className="flex-1 overflow-y-auto">
               <TabsContent value="post" className="mt-0 flex-1">
                 <PostPreview
@@ -161,23 +160,22 @@ export function CommentAutomationPreview({
         </div>
       </div>
 
-      {/* Tab switcher — outside the phone frame */}
-      <TabsList className="mt-4 bg-muted/60 rounded-lg h-auto p-1 gap-1">
+      <TabsList className="mt-4 h-auto gap-1 rounded-lg bg-muted/60 p-1">
         <TabsTrigger
           value="post"
-          className="rounded-md text-xs px-4 py-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm text-muted-foreground"
+          className="rounded-md px-4 py-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
         >
           Post
         </TabsTrigger>
         <TabsTrigger
           value="comments"
-          className="rounded-md text-xs px-4 py-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm text-muted-foreground"
+          className="rounded-md px-4 py-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
         >
           Comments
         </TabsTrigger>
         <TabsTrigger
           value="dm"
-          className="rounded-md text-xs px-4 py-1.5 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm text-muted-foreground"
+          className="rounded-md px-4 py-1.5 text-xs text-muted-foreground data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm"
         >
           DM
         </TabsTrigger>
@@ -185,8 +183,6 @@ export function CommentAutomationPreview({
     </Tabs>
   );
 }
-
-// ── Post preview tab ─────────────────────────────────────────────
 
 function PostPreview({
   username,
@@ -201,22 +197,20 @@ function PostPreview({
 }) {
   return (
     <div className="flex flex-col">
-      {/* Header bar */}
-      <div className="flex items-center px-3 py-2 border-b border-white/10">
-        <ChevronLeft className="size-5 text-white mr-2" />
-        <div className="flex-1 flex flex-col items-center">
-          <span className="text-[9px] text-white/50 uppercase tracking-wider font-medium">
+      <div className="flex items-center border-b border-white/10 px-3 py-2">
+        <ChevronLeft className="mr-2 size-5 text-white" />
+        <div className="flex flex-1 flex-col items-center">
+          <span className="text-[9px] font-medium tracking-wider text-white/50 uppercase">
             {username.toUpperCase()}
           </span>
-          <span className="text-xs text-white font-semibold">Posts</span>
+          <span className="text-xs font-semibold text-white">Posts</span>
         </div>
         <div className="size-5" />
       </div>
 
-      {/* Post header */}
       <div className="flex items-center gap-2 px-3 py-2">
         <AccountAvatar profilePictureUrl={profilePictureUrl} size="md" />
-        <span className="text-xs text-white font-medium flex-1">
+        <span className="flex-1 text-xs font-medium text-white">
           {username}
         </span>
         <svg
@@ -230,20 +224,18 @@ function PostPreview({
         </svg>
       </div>
 
-      {/* Post image */}
-      <div className="relative w-full h-[200px] bg-[#262626] flex items-center justify-center overflow-hidden">
+      <div className="relative flex h-[200px] w-full items-center justify-center overflow-hidden bg-[#262626]">
         {thumbnail ? (
           <img
             src={thumbnail}
             alt="Post"
-            className="w-full h-full object-cover"
+            className="h-full w-full object-cover"
           />
         ) : (
           <ImageIcon className="size-12 text-white/20" />
         )}
       </div>
 
-      {/* Action bar */}
       <div className="flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-3">
           <Heart className="size-5 text-white" />
@@ -253,14 +245,12 @@ function PostPreview({
         <Bookmark className="size-5 text-white" />
       </div>
 
-      {/* Likes */}
       <div className="px-3 pb-1">
-        <p className="text-[11px] text-white font-semibold">94 likes</p>
+        <p className="text-[11px] font-semibold text-white">94 likes</p>
       </div>
 
-      {/* Caption */}
       <div className="px-3 pb-3">
-        <p className="text-[11px] text-white/80 leading-relaxed line-clamp-2">
+        <p className="line-clamp-2 text-[11px] leading-relaxed text-white/80">
           <span className="font-semibold text-white">{username}</span>{" "}
           {caption || "Your post caption will appear here..."}
         </p>
@@ -268,8 +258,6 @@ function PostPreview({
     </div>
   );
 }
-
-// ── Comments preview tab ─────────────────────────────────────────
 
 function CommentsPreview({
   username,
@@ -286,73 +274,58 @@ function CommentsPreview({
 }) {
   return (
     <div className="flex flex-col">
-      {/* Header */}
-      <div className="flex items-center px-3 py-2 border-b border-white/10">
-        <ChevronLeft className="size-5 text-white mr-2" />
-        <div className="flex-1 flex flex-col items-center">
-          <span className="text-[9px] text-white/50 uppercase tracking-wider font-medium">
+      <div className="flex items-center border-b border-white/10 px-3 py-2">
+        <ChevronLeft className="mr-2 size-5 text-white" />
+        <div className="flex flex-1 flex-col items-center">
+          <span className="text-[9px] font-medium tracking-wider text-white/50 uppercase">
             {username.toUpperCase()}
           </span>
-          <span className="text-xs text-white font-semibold">Comments</span>
+          <span className="text-xs font-semibold text-white">Comments</span>
         </div>
         <Send className="size-4 text-white/60" />
       </div>
 
-      {/* Comment list */}
-      <div className="px-3 py-3 flex flex-col gap-4">
-        {/* User comment */}
+      <div className="flex flex-col gap-4 px-3 py-3">
         <div className="flex gap-2">
-          <div className="size-7 rounded-full bg-[#404040] shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-[11px] text-white leading-relaxed">
+          <div className="size-7 shrink-0 rounded-full bg-[#404040]" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] leading-relaxed text-white">
               <span className="font-semibold">user</span>{" "}
-              <span className="text-white/40 text-[10px]">Now</span>
+              <span className="text-[10px] text-white/40">Now</span>
             </p>
-            <p className="text-[11px] text-white mt-0.5">{commentKeyword}</p>
-            <p className="text-[10px] text-white/40 mt-1">Reply</p>
+            <p className="mt-0.5 text-[11px] text-white">{commentKeyword}</p>
+            <p className="mt-1 text-[10px] text-white/40">Reply</p>
           </div>
-          <Heart className="size-3 text-white/40 shrink-0 mt-1" />
+          <Heart className="mt-1 size-3 shrink-0 text-white/40" />
         </div>
 
-        {/* Auto-reply */}
         {replyEnabled && (
           <div className="flex gap-2 pl-9">
             <AccountAvatar profilePictureUrl={profilePictureUrl} size="sm" />
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] text-white leading-relaxed">
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] leading-relaxed text-white">
                 <span className="font-semibold">{username}</span>{" "}
-                <span className="text-white/40 text-[10px]">Now</span>
+                <span className="text-[10px] text-white/40">Now</span>
               </p>
-              <p className="text-[11px] text-white mt-0.5">{replyText}</p>
-              <p className="text-[10px] text-white/40 mt-1">Reply</p>
+              <p className="mt-0.5 text-[11px] text-white">{replyText}</p>
+              <p className="mt-1 text-[10px] text-white/40">Reply</p>
             </div>
-            <Heart className="size-3 text-white/40 shrink-0 mt-1" />
+            <Heart className="mt-1 size-3 shrink-0 text-white/40" />
           </div>
         )}
       </div>
 
-      {/* Emoji bar */}
-      <div className="flex items-center justify-center gap-3 py-3 border-t border-white/10 mt-auto">
-        {[
-          "\u2764\uFE0F",
-          "\uD83D\uDE4C",
-          "\uD83D\uDD25",
-          "\uD83D\uDC4F",
-          "\uD83D\uDE22",
-          "\uD83D\uDE0D",
-          "\uD83D\uDE2E",
-          "\uD83D\uDE02",
-        ].map((emoji) => (
+      <div className="mt-auto flex items-center justify-center gap-3 border-t border-white/10 py-3">
+        {["❤️", "🙌", "🔥", "👏", "😢", "😍", "😮", "😂"].map((emoji) => (
           <span key={emoji} className="text-base">
             {emoji}
           </span>
         ))}
       </div>
 
-      {/* Comment input */}
-      <div className="flex items-center gap-2 px-3 py-2 border-t border-white/10">
+      <div className="flex items-center gap-2 border-t border-white/10 px-3 py-2">
         <AccountAvatar profilePictureUrl={profilePictureUrl} size="sm" />
-        <span className="text-[11px] text-white/40 flex-1">
+        <span className="flex-1 text-[11px] text-white/40">
           Add a comment for {username}...
         </span>
       </div>
@@ -360,59 +333,51 @@ function CommentsPreview({
   );
 }
 
-// ── DM preview tab ───────────────────────────────────────────────
-
-type Msg = {
-  side: "left" | "right";
-  text: React.ReactNode;
-  isButton?: boolean;
-};
-
-function buildDmMessages(config: PreviewConfig): Msg[] {
-  const msgs: Msg[] = [];
+function buildDmMessages(config: PreviewConfig): PreviewMessage[] {
+  const messages: PreviewMessage[] = [];
 
   if (config.openingDmEnabled && config.openingDmText) {
-    msgs.push({ side: "left", text: config.openingDmText });
+    messages.push({
+      side: "left",
+      text: config.openingDmText,
+      buttons: config.openingDmButtonText
+        ? [{ label: config.openingDmButtonText }]
+        : undefined,
+    });
 
     if (config.openingDmButtonText) {
-      msgs.push({
-        side: "left",
+      messages.push({
+        side: "right",
         text: config.openingDmButtonText,
-        isButton: true,
       });
-      msgs.push({ side: "right", text: config.openingDmButtonText });
     }
   }
 
   if (config.emailCollectionEnabled && config.emailCollectionText) {
-    msgs.push({ side: "left", text: config.emailCollectionText });
-    msgs.push({ side: "right", text: "example@mail.com" });
+    messages.push({ side: "left", text: config.emailCollectionText });
+    messages.push({ side: "right", text: "example@mail.com" });
   }
 
   if (config.followGateEnabled && config.followGateText) {
-    msgs.push({ side: "left", text: config.followGateText });
-    msgs.push({ side: "left", text: "Following", isButton: true });
-    msgs.push({ side: "right", text: "Following" });
+    messages.push({
+      side: "left",
+      text: config.followGateText,
+      buttons: FOLLOW_GATE_BUTTONS,
+    });
+    messages.push({ side: "right", text: "I'm following" });
   }
 
-  if (config.linkDmText) {
-    msgs.push({
+  if (config.linkDmText || config.linkButtons.length > 0) {
+    messages.push({
       side: "left",
-      text: (
-        <>
-          {config.linkDmText}
-          {config.linkUrl && (
-            <>
-              {"\n\n"}
-              <span className="text-blue-400 underline">{config.linkUrl}</span>
-            </>
-          )}
-        </>
-      ),
+      text: config.linkDmText || "Tap below to open your link.",
+      buttons: config.linkButtons.length > 0
+        ? config.linkButtons.map((button) => ({ label: button.label }))
+        : undefined,
     });
   }
 
-  return msgs;
+  return messages;
 }
 
 function DmPreview({
@@ -427,39 +392,34 @@ function DmPreview({
   const messages = buildDmMessages(config);
 
   return (
-    <div className="flex flex-col min-h-[440px]">
-      {/* DM Header */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
-        <ChevronLeft className="size-5 text-white shrink-0" />
+    <div className="flex min-h-[440px] flex-col">
+      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
+        <ChevronLeft className="size-5 shrink-0 text-white" />
         <AccountAvatar profilePictureUrl={profilePictureUrl} size="md" />
-        <span className="text-xs text-white font-semibold flex-1">
+        <span className="flex-1 text-xs font-semibold text-white">
           {username}
         </span>
-        <Phone className="size-4 text-white/60 shrink-0" />
-        <Video className="size-4 text-white/60 shrink-0 ml-1" />
+        <Phone className="size-4 shrink-0 text-white/60" />
+        <Video className="ml-1 size-4 shrink-0 text-white/60" />
       </div>
 
-      {/* Messages — stack from bottom like real Instagram */}
-      <div className="flex-1 px-3 py-3 flex flex-col justify-end overflow-y-auto">
+      <div className="flex flex-1 flex-col justify-end overflow-y-auto px-3 py-3">
         <div className="flex flex-col">
-          {messages.map((msg, i) => {
-            const next = messages[i + 1];
-            // Show avatar only on the last left-side message before a
-            // direction change (or the very last message).
+          {messages.map((message, index) => {
+            const next = messages[index + 1];
             const isLastInGroup =
-              msg.side === "left" && (!next || next.side !== "left");
-            // Tighter gap between consecutive same-sender messages.
-            const sameGroupAsNext = next && next.side === msg.side;
+              message.side === "left" && (!next || next.side !== "left");
+            const sameGroupAsNext = next && next.side === message.side;
 
             return (
-              <div key={i} className={sameGroupAsNext ? "mb-1" : "mb-3"}>
+              <div key={index} className={sameGroupAsNext ? "mb-1" : "mb-3"}>
                 <MessageBubble
-                  side={msg.side}
+                  side={message.side}
                   avatar={isLastInGroup}
-                  isButton={msg.isButton}
+                  buttons={message.buttons}
                   profilePictureUrl={profilePictureUrl}
                 >
-                  {msg.text}
+                  {message.text}
                 </MessageBubble>
               </div>
             );
@@ -467,9 +427,8 @@ function DmPreview({
         </div>
       </div>
 
-      {/* Input bar */}
-      <div className="flex items-center gap-2 px-3 py-2.5 border-t border-white/10">
-        <div className="size-6 rounded-full bg-gradient-to-tr from-blue-500 to-blue-400 flex items-center justify-center shrink-0">
+      <div className="flex items-center gap-2 border-t border-white/10 px-3 py-2.5">
+        <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-blue-500 to-blue-400">
           <svg
             className="size-3.5 text-white"
             fill="none"
@@ -485,7 +444,7 @@ function DmPreview({
             <circle cx="12" cy="13" r="4" strokeWidth="2" />
           </svg>
         </div>
-        <span className="text-[11px] text-white/40 flex-1">Message...</span>
+        <span className="flex-1 text-[11px] text-white/40">Message...</span>
         <div className="flex items-center gap-2.5 text-white/40">
           <svg
             className="size-4"
@@ -539,43 +498,26 @@ function DmPreview({
   );
 }
 
-// ── Message bubble component ─────────────────────────────────────
-
 function MessageBubble({
   children,
   side,
   avatar,
-  isButton,
+  buttons,
   profilePictureUrl,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   side: "left" | "right";
   avatar?: boolean;
-  isButton?: boolean;
+  buttons?: PreviewButton[];
   profilePictureUrl?: string | null;
 }) {
   if (side === "right") {
     return (
       <div className="flex justify-end">
-        <div className="bg-purple-600 rounded-2xl rounded-br-md px-3 py-2 max-w-[80%]">
-          <p className="text-[11px] text-white whitespace-pre-wrap leading-relaxed">
+        <div className="max-w-[80%] rounded-2xl rounded-br-md bg-purple-600 px-3 py-2">
+          <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-white">
             {children}
           </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (isButton) {
-    return (
-      <div className="flex items-end gap-1.5">
-        {avatar ? (
-          <AccountAvatar profilePictureUrl={profilePictureUrl} size="sm" />
-        ) : (
-          <div className="size-5 shrink-0" />
-        )}
-        <div className="border border-white/20 rounded-2xl px-3 py-2 max-w-[80%]">
-          <p className="text-[11px] text-white text-center">{children}</p>
         </div>
       </div>
     );
@@ -588,10 +530,22 @@ function MessageBubble({
       ) : (
         <div className="size-5 shrink-0" />
       )}
-      <div className="bg-[#262626] rounded-2xl rounded-bl-md px-3 py-2 max-w-[80%]">
-        <p className="text-[11px] text-white whitespace-pre-wrap leading-relaxed">
+      <div className="max-w-[80%] rounded-2xl rounded-bl-md bg-[#262626] px-3 py-2">
+        <p className="whitespace-pre-wrap text-[11px] leading-relaxed text-white">
           {children}
         </p>
+        {buttons && buttons.length > 0 ? (
+          <div className="mt-3 flex flex-col gap-2">
+            {buttons.map((button) => (
+              <div
+                key={button.label}
+                className="rounded-xl border border-white/8 bg-white/8 px-3 py-2.5 text-center text-[11px] font-semibold text-white"
+              >
+                {button.label}
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );

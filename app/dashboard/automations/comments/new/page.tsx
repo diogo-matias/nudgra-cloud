@@ -9,6 +9,10 @@ import { api } from "@/convex/_generated/api";
 import { Switch } from "@/components/ui/switch";
 import { PostPickerModal } from "@/components/dashboard/post-picker-modal";
 import { CommentAutomationPreview } from "@/components/dashboard/comment-automation-preview";
+import {
+  LinkButtonsEditor,
+  type LinkButtonConfig,
+} from "@/components/dashboard/link-buttons-editor";
 import { OpeningDmInfoModal } from "@/components/dashboard/opening-dm-info-modal";
 
 type PostScope = "specific" | "any" | "next";
@@ -65,7 +69,7 @@ export default function NewCommentAutomationPage() {
 
   // Link delivery
   const [linkDmText, setLinkDmText] = useState("Here's your link:");
-  const [linkUrl, setLinkUrl] = useState("");
+  const [linkButtons, setLinkButtons] = useState<LinkButtonConfig[]>([]);
 
   // Follow-up
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
@@ -118,13 +122,14 @@ export default function NewCommentAutomationPage() {
     name.trim().length > 0 &&
     (postScope !== "specific" || selectedMediaIds.length > 0) &&
     (commentFilter !== "specific_words" || triggerKeywords.length > 0) &&
-    (linkDmText.trim().length > 0 || linkUrl.trim().length > 0);
+    (linkDmText.trim().length > 0 || linkButtons.length > 0);
 
   async function handleSubmit(goLive: boolean) {
     if (!isValid || isSubmitting) return;
     setIsSubmitting(true);
 
     try {
+      const primaryLink = linkButtons[0] ?? null;
       const result = await createAutomation({
         name,
         postScope,
@@ -141,7 +146,9 @@ export default function NewCommentAutomationPage() {
         emailCollectionEnabled,
         emailCollectionText,
         linkDmText,
-        linkUrl,
+        linkButtons,
+        linkUrl: primaryLink?.url ?? "",
+        linkButtonText: primaryLink?.label ?? "Open link",
         followUpEnabled,
         followUpText,
         goLive,
@@ -601,34 +608,10 @@ export default function NewCommentAutomationPage() {
                     />
                   </div>
 
-                  {/* Link URL */}
-                  {linkUrl ? (
-                    <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2">
-                      <input
-                        type="url"
-                        value={linkUrl}
-                        onChange={(e) => setLinkUrl(e.target.value)}
-                        placeholder="https://example.com/your-link"
-                        className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setLinkUrl("")}
-                        className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-                      >
-                        <X className="size-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setLinkUrl("https://")}
-                      className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
-                    >
-                      <Plus className="size-4" />
-                      Add A Link
-                    </button>
-                  )}
+                  <LinkButtonsEditor
+                    links={linkButtons}
+                    onChange={setLinkButtons}
+                  />
                 </div>
               </div>
 
@@ -675,7 +658,7 @@ export default function NewCommentAutomationPage() {
               emailCollectionEnabled,
               emailCollectionText,
               linkDmText,
-              linkUrl,
+              linkButtons,
               username: accountStatus?.account?.username ?? undefined,
               profilePictureUrl:
                 accountStatus?.account?.profilePictureUrl ?? undefined,
