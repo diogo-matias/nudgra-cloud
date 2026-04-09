@@ -28,6 +28,9 @@ type PreviewConfig = {
   emailCollectionText: string;
   linkDmText: string;
   linkButtons: LinkButtonConfig[];
+  followUpEnabled?: boolean;
+  followUpText?: string;
+  validationIssues?: string[];
   selectedPostThumbnail?: string | null;
   selectedPostCaption?: string | null;
   username?: string;
@@ -42,11 +45,10 @@ type PreviewMessage = {
   side: "left" | "right";
   text: ReactNode;
   buttons?: PreviewButton[];
+  metaLabel?: string;
 };
 
-const FOLLOW_GATE_BUTTONS: PreviewButton[] = [
-  { label: "I'm following" },
-];
+const FOLLOW_GATE_BUTTONS: PreviewButton[] = [{ label: "I'm following" }];
 
 function AccountAvatar({
   profilePictureUrl,
@@ -353,11 +355,6 @@ function buildDmMessages(config: PreviewConfig): PreviewMessage[] {
     }
   }
 
-  if (config.emailCollectionEnabled && config.emailCollectionText) {
-    messages.push({ side: "left", text: config.emailCollectionText });
-    messages.push({ side: "right", text: "example@mail.com" });
-  }
-
   if (config.followGateEnabled && config.followGateText) {
     messages.push({
       side: "left",
@@ -367,6 +364,11 @@ function buildDmMessages(config: PreviewConfig): PreviewMessage[] {
     messages.push({ side: "right", text: "I'm following" });
   }
 
+  if (config.emailCollectionEnabled && config.emailCollectionText) {
+    messages.push({ side: "left", text: config.emailCollectionText });
+    messages.push({ side: "right", text: "example@mail.com" });
+  }
+
   if (config.linkDmText || config.linkButtons.length > 0) {
     messages.push({
       side: "left",
@@ -374,6 +376,18 @@ function buildDmMessages(config: PreviewConfig): PreviewMessage[] {
       buttons: config.linkButtons.length > 0
         ? config.linkButtons.map((button) => ({ label: button.label }))
         : undefined,
+    });
+  }
+
+  if (
+    config.followUpEnabled &&
+    config.followUpText &&
+    config.linkButtons.length > 0
+  ) {
+    messages.push({
+      side: "left",
+      text: config.followUpText,
+      metaLabel: "6 hours later if no click is tracked",
     });
   }
 
@@ -405,6 +419,21 @@ function DmPreview({
 
       <div className="flex flex-1 flex-col justify-end overflow-y-auto px-3 py-3">
         <div className="flex flex-col">
+          {config.validationIssues && config.validationIssues.length > 0 ? (
+            <div className="mb-3 rounded-2xl border border-amber-500/20 bg-amber-400/10 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-200">
+                Blocked configuration
+              </p>
+              <div className="mt-1 flex flex-col gap-1">
+                {config.validationIssues.map((issue) => (
+                  <p key={issue} className="text-[11px] leading-relaxed text-amber-100/90">
+                    {issue}
+                  </p>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
           {messages.map((message, index) => {
             const next = messages[index + 1];
             const isLastInGroup =
@@ -413,6 +442,11 @@ function DmPreview({
 
             return (
               <div key={index} className={sameGroupAsNext ? "mb-1" : "mb-3"}>
+                {message.metaLabel ? (
+                  <p className="mb-2 text-center text-[10px] uppercase tracking-wide text-white/35">
+                    {message.metaLabel}
+                  </p>
+                ) : null}
                 <MessageBubble
                   side={message.side}
                   avatar={isLastInGroup}

@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import {
+  AlertTriangle,
   ArrowLeft,
   X,
   Plus,
@@ -23,6 +24,14 @@ import {
   type LinkButtonConfig,
 } from "@/components/dashboard/link-buttons-editor";
 import { OpeningDmInfoModal } from "@/components/dashboard/opening-dm-info-modal";
+import {
+  formatCommentAutomationTimestamp,
+  getCommentAutomationFormValidationIssues,
+  getCommentAutomationLatestSessionSummary,
+  getNormalizedCommentAutomationKeywords,
+  getCommentAutomationStepLabel,
+  mergeCommentAutomationKeywords,
+} from "@/lib/comment-automation-ui";
 
 type PostScope = "specific" | "any" | "next";
 type CommentFilter = "specific_words" | "any_word";
@@ -71,10 +80,19 @@ export default function CommentAutomationDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
 
   // Get selected media items for thumbnail previews
   const selectedMedia = media.filter((m) =>
     selectedMediaIds.includes(m.mediaId),
+  );
+  const mergedTriggerKeywords = mergeCommentAutomationKeywords(
+    triggerKeywords,
+    keywordInput,
+  );
+  const normalizedTriggerKeywords = getNormalizedCommentAutomationKeywords(
+    triggerKeywords,
+    keywordInput,
   );
 
   // Populate form when automation loads
@@ -84,7 +102,7 @@ export default function CommentAutomationDetailPage() {
       setPostScope(automation.postScope);
       setSelectedMediaIds(automation.selectedMediaIds);
       setCommentFilter(automation.commentFilter);
-      setTriggerKeywords(automation.triggerKeywords);
+      setTriggerKeywords(automation.triggerKeywordLabels);
       setCommentReplyEnabled(automation.commentReplyEnabled);
       setCommentReplyTexts(
         automation.commentReplyTexts.length > 0
@@ -107,10 +125,9 @@ export default function CommentAutomationDetailPage() {
   }, [automation, initialized]);
 
   function addKeyword() {
-    const trimmed = keywordInput.trim().toLowerCase();
-    if (trimmed && !triggerKeywords.includes(trimmed)) {
-      setTriggerKeywords((prev) => [...prev, trimmed]);
-    }
+    setTriggerKeywords((prev) =>
+      mergeCommentAutomationKeywords(prev, keywordInput),
+    );
     setKeywordInput("");
   }
 
@@ -134,21 +151,26 @@ export default function CommentAutomationDetailPage() {
   }
 
   function addExampleKeyword(keyword: string) {
-    const lower = keyword.toLowerCase();
-    if (!triggerKeywords.includes(lower)) {
-      setTriggerKeywords((prev) => [...prev, lower]);
-    }
+    setTriggerKeywords((prev) => mergeCommentAutomationKeywords(prev, keyword));
   }
 
-  const isValid =
-    name.trim().length > 0 &&
-    (postScope !== "specific" || selectedMediaIds.length > 0) &&
-    (commentFilter !== "specific_words" || triggerKeywords.length > 0) &&
-    (linkDmText.trim().length > 0 || linkButtons.length > 0);
+  const editValidationIssues = getCommentAutomationFormValidationIssues({
+    name,
+    postScope,
+    selectedMediaIds,
+    commentFilter,
+    triggerKeywords: mergedTriggerKeywords,
+    followGateEnabled,
+    linkDmText,
+    linkButtons,
+    followUpEnabled,
+  });
+  const isValid = editValidationIssues.length === 0;
 
   async function handleSave() {
     if (!isValid || isSubmitting) return;
     setIsSubmitting(true);
+    setSubmissionError(null);
 
     try {
       const primaryLink = linkButtons[0] ?? null;
@@ -158,7 +180,8 @@ export default function CommentAutomationDetailPage() {
         postScope,
         selectedMediaIds,
         commentFilter,
-        triggerKeywords,
+        triggerKeywords: normalizedTriggerKeywords,
+        triggerKeywordLabels: mergedTriggerKeywords,
         commentReplyEnabled,
         commentReplyTexts: commentReplyTexts.filter((t) => t.trim()),
         openingDmEnabled,
@@ -179,6 +202,11 @@ export default function CommentAutomationDetailPage() {
       setIsEditing(false);
     } catch (error) {
       console.error("Failed to update automation:", error);
+      setSubmissionError(
+        error instanceof Error
+          ? error.message
+          : "Failed to update automation.",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -190,7 +218,7 @@ export default function CommentAutomationDetailPage() {
       setPostScope(automation.postScope);
       setSelectedMediaIds(automation.selectedMediaIds);
       setCommentFilter(automation.commentFilter);
-      setTriggerKeywords(automation.triggerKeywords);
+      setTriggerKeywords(automation.triggerKeywordLabels);
       setCommentReplyEnabled(automation.commentReplyEnabled);
       setCommentReplyTexts(
         automation.commentReplyTexts.length > 0
@@ -209,6 +237,7 @@ export default function CommentAutomationDetailPage() {
       setFollowUpEnabled(automation.followUpEnabled);
       setFollowUpText(automation.followUpText);
     }
+    setSubmissionError(null);
     setIsEditing(false);
   }
 
@@ -248,6 +277,15 @@ export default function CommentAutomationDetailPage() {
   const automationSelectedMedia = media.filter((m) =>
     automation.selectedMediaIds.includes(m.mediaId),
   );
+  const lockedMedia =
+    automation.nextLockedMediaId === null
+      ? null
+      : media.find((item) => item.mediaId === automation.nextLockedMediaId) ?? null;
+  const latestSessionSummary = getCommentAutomationLatestSessionSummary(
+    automation.latestSession,
+  );
+  const canGoLive = automation.validationIssues.length === 0;
+  const nextToggleStatus = automation.status === "live" ? "paused" : "live";
 
   // ── Read-only view ──────────────────────────────────────────────
   if (!isEditing) {
@@ -273,13 +311,19 @@ export default function CommentAutomationDetailPage() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                disabled={nextToggleStatus === "live" && !canGoLive}
+                title={
+                  nextToggleStatus === "live" && !canGoLive
+                    ? automation.validationIssues[0] ?? "Automation must be fixed before going live."
+                    : undefined
+                }
                 onClick={() =>
                   void toggleAutomation({
                     automationId,
-                    status: automation.status === "live" ? "paused" : "live",
+                    status: nextToggleStatus,
                   })
                 }
-                className="inline-flex items-center gap-2 border border-border rounded-lg px-3 py-2 text-sm font-medium text-foreground hover:bg-muted transition-colors cursor-pointer"
+                className="inline-flex items-center gap-2 border border-border rounded-lg px-3 py-2 text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
               >
                 {automation.status === "live" ? (
                   <ToggleRight className="size-5 text-primary" />
@@ -312,6 +356,12 @@ export default function CommentAutomationDetailPage() {
                       {automation.name}
                     </h1>
                     <StatusBadge status={automation.status} />
+                    {automation.guardrailTrippedAt ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-destructive/20 bg-destructive/5 px-2 py-0.5 text-[10px] font-medium text-destructive">
+                        <AlertTriangle className="size-3" />
+                        Safety paused
+                      </span>
+                    ) : null}
                   </div>
                   <p className="text-sm text-muted-foreground">
                     Triggered {automation.triggerCount} time
@@ -322,6 +372,120 @@ export default function CommentAutomationDetailPage() {
                   </p>
                 </div>
               </div>
+
+              {automation.validationIssues.length > 0 ? (
+                <ValidationIssuesNotice
+                  title="This automation must be fixed before it can go live again"
+                  issues={automation.validationIssues}
+                />
+              ) : null}
+              {automation.guardrailReason ? (
+                <ValidationIssuesNotice
+                  title="Safety guardrail paused this automation"
+                  issues={[
+                    automation.guardrailReason,
+                    `Paused at ${formatCommentAutomationTimestamp(
+                      automation.guardrailTrippedAt,
+                    )}. Review the latest session before turning it back on.`,
+                  ]}
+                />
+              ) : null}
+
+              <DetailCard title="Runtime status">
+                <DetailRow
+                  label="Latest session"
+                  value={latestSessionSummary ?? "No sessions yet"}
+                />
+                {automation.latestSession ? (
+                  <>
+                    <DetailRow
+                      label="Current step"
+                      value={getCommentAutomationStepLabel(
+                        automation.latestSession.currentStep,
+                      )}
+                    />
+                    <DetailRow
+                      label="Outbound DMs"
+                      value={String(
+                        automation.latestSession.outboundMessageCount,
+                      )}
+                    />
+                    <DetailRow
+                      label="Last activity"
+                      value={formatCommentAutomationTimestamp(
+                        automation.latestSession.lastStepAt,
+                      )}
+                    />
+                    <DetailRow
+                      label="Tracked click"
+                      value={formatCommentAutomationTimestamp(
+                        automation.latestSession.linkClickedAt,
+                      )}
+                    />
+                    <DetailRow
+                      label="Follow-up sent"
+                      value={formatCommentAutomationTimestamp(
+                        automation.latestSession.followUpSentAt,
+                      )}
+                    />
+                    {automation.latestSession.guardrailTrippedAt ||
+                    automation.latestSession.guardrailReason ? (
+                      <DetailRow
+                        label="Safety guardrail"
+                        value={
+                          automation.latestSession.guardrailReason ??
+                          formatCommentAutomationTimestamp(
+                            automation.latestSession.guardrailTrippedAt,
+                          )
+                        }
+                      />
+                    ) : null}
+                  </>
+                ) : null}
+                {automation.postScope === "next" ? (
+                  <>
+                    <DetailRow
+                      label="Activated"
+                      value={formatCommentAutomationTimestamp(
+                        automation.nextPostActivatedAt,
+                      )}
+                    />
+                    <DetailRow
+                      label="Locked post"
+                      value={
+                        lockedMedia?.caption?.trim()
+                          ? lockedMedia.caption
+                          : automation.nextLockedMediaId ?? "Waiting for the next published post"
+                      }
+                    />
+                    <DetailRow
+                      label="Locked at"
+                      value={formatCommentAutomationTimestamp(
+                        automation.nextLockedAt,
+                      )}
+                    />
+                    {lockedMedia ? (
+                      <div className="flex gap-2">
+                        <div className="relative size-16 overflow-hidden rounded-lg border border-border">
+                          {lockedMedia.thumbnailUrl || lockedMedia.mediaUrl ? (
+                            <img
+                              src={
+                                lockedMedia.thumbnailUrl ||
+                                lockedMedia.mediaUrl ||
+                                undefined
+                              }
+                              alt={lockedMedia.caption ?? "Locked post"}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="h-full w-full bg-muted" />
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                ) : null}
+              </DetailCard>
 
               {/* Trigger */}
               <DetailCard title="Trigger">
@@ -375,13 +539,13 @@ export default function CommentAutomationDetailPage() {
                       : "Any comment"
                   }
                 />
-                {automation.triggerKeywords.length > 0 && (
+                {automation.triggerKeywordLabels.length > 0 && (
                   <div className="flex flex-col gap-1.5">
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                       Keywords
                     </p>
                     <div className="flex flex-wrap gap-1.5">
-                      {automation.triggerKeywords.map((kw) => (
+                      {automation.triggerKeywordLabels.map((kw) => (
                         <span
                           key={kw}
                           className="text-xs font-mono text-foreground bg-muted border border-border rounded-md px-2 py-0.5"
@@ -426,6 +590,7 @@ export default function CommentAutomationDetailPage() {
                     label="Message"
                     value={automation.followGateText}
                   />
+                  <InlineWarning text="Follow status is checked after the user interacts in DM. If Meta still requires profile consent, the automation asks them to send a reply and then re-checks." />
                 </DetailCard>
               )}
 
@@ -442,6 +607,12 @@ export default function CommentAutomationDetailPage() {
               {/* Link delivery */}
               <DetailCard title="Link delivery">
                 <DetailRow label="Message" value={automation.linkDmText} />
+                {automation.linkButtons.length > 0 ? (
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Link buttons are rewritten into tracked redirect URLs before
+                    they are sent.
+                  </p>
+                ) : null}
                 {automation.linkButtons.length > 0 ? (
                   <div className="flex flex-col gap-2">
                     {automation.linkButtons.map((link, index) => (
@@ -467,6 +638,10 @@ export default function CommentAutomationDetailPage() {
               {automation.followUpEnabled && (
                 <DetailCard title="Follow-up">
                   <DetailRow label="Message" value={automation.followUpText} />
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Sends once after 6 hours, only if no tracked link click is
+                    recorded and the 24-hour messaging window is still open.
+                  </p>
                 </DetailCard>
               )}
             </div>
@@ -478,7 +653,7 @@ export default function CommentAutomationDetailPage() {
               config={{
                 commentReplyEnabled: automation.commentReplyEnabled,
                 commentReplyTexts: automation.commentReplyTexts,
-                triggerKeywords: automation.triggerKeywords,
+                triggerKeywords: automation.triggerKeywordLabels,
                 openingDmEnabled: automation.openingDmEnabled,
                 openingDmText: automation.openingDmText,
                 openingDmButtonText: automation.openingDmButtonText,
@@ -488,6 +663,9 @@ export default function CommentAutomationDetailPage() {
                 emailCollectionText: automation.emailCollectionText,
                 linkDmText: automation.linkDmText,
                 linkButtons: automation.linkButtons,
+                followUpEnabled: automation.followUpEnabled,
+                followUpText: automation.followUpText,
+                validationIssues: automation.validationIssues,
                 username: accountStatus?.account?.username ?? undefined,
                 profilePictureUrl:
                   accountStatus?.account?.profilePictureUrl ?? undefined,
@@ -532,6 +710,11 @@ export default function CommentAutomationDetailPage() {
           <button
             type="button"
             disabled={!isValid || isSubmitting}
+            title={
+              !isValid
+                ? editValidationIssues[0] ?? "Fix the validation issues first."
+                : undefined
+            }
             onClick={() => void handleSave()}
             className="inline-flex items-center bg-primary text-primary-foreground rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
           >
@@ -558,6 +741,20 @@ export default function CommentAutomationDetailPage() {
                 className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring transition"
               />
             </div>
+
+            {editValidationIssues.length > 0 ? (
+              <ValidationIssuesNotice
+                title="Fix these items before saving"
+                issues={editValidationIssues}
+              />
+            ) : null}
+
+            {submissionError ? (
+              <ValidationIssuesNotice
+                title="Automation could not be saved"
+                issues={[submissionError]}
+              />
+            ) : null}
 
             {/* ─── Section 1: When someone comments on ─────────── */}
             <div className="flex flex-col gap-3">
@@ -678,6 +875,12 @@ export default function CommentAutomationDetailPage() {
                   </span>
                   <HelpCircle className="size-4 text-muted-foreground" />
                 </div>
+                {postScope === "next" ? (
+                  <p className="mt-3 ml-8 text-xs leading-relaxed text-muted-foreground">
+                    Going live resets this automation to the first new post or
+                    reel published after activation.
+                  </p>
+                ) : null}
               </OptionCard>
             </div>
 
@@ -728,6 +931,11 @@ export default function CommentAutomationDetailPage() {
                       type="text"
                       value={keywordInput}
                       onChange={(e) => setKeywordInput(e.target.value)}
+                      onBlur={() => {
+                        if (keywordInput.trim()) {
+                          addKeyword();
+                        }
+                      }}
                       onClick={(e) => e.stopPropagation()}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === ",") {
@@ -877,7 +1085,7 @@ export default function CommentAutomationDetailPage() {
                 onToggle={setFollowGateEnabled}
               >
                 {followGateEnabled && (
-                  <div className="mt-3">
+                  <div className="mt-3 flex flex-col gap-3">
                     <div className="rounded-lg border border-border bg-muted/30 p-3">
                       <textarea
                         value={followGateText}
@@ -888,6 +1096,7 @@ export default function CommentAutomationDetailPage() {
                         className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed"
                       />
                     </div>
+                    <InlineWarning text="Follow status is verified after the user interacts in DM. If Meta still requires profile consent, they'll be asked to send a reply so verification can complete." />
                   </div>
                 )}
               </ToggleCard>
@@ -954,7 +1163,7 @@ export default function CommentAutomationDetailPage() {
                 onToggle={setFollowUpEnabled}
               >
                 {followUpEnabled && (
-                  <div className="mt-3">
+                  <div className="mt-3 flex flex-col gap-3">
                     <div className="rounded-lg border border-border bg-muted/30 p-3">
                       <textarea
                         value={followUpText}
@@ -965,6 +1174,14 @@ export default function CommentAutomationDetailPage() {
                         className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed"
                       />
                     </div>
+                    {linkButtons.length === 0 ? (
+                      <InlineWarning text="Add at least one link button first. Follow-up only runs when clicks can be tracked." />
+                    ) : (
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        Follow-up sends once, 6 hours after the link DM, only if
+                        no tracked link click is recorded.
+                      </p>
+                    )}
                   </div>
                 )}
               </ToggleCard>
@@ -990,6 +1207,9 @@ export default function CommentAutomationDetailPage() {
               emailCollectionText,
               linkDmText,
               linkButtons,
+              followUpEnabled,
+              followUpText,
+              validationIssues: editValidationIssues,
               username: accountStatus?.account?.username ?? undefined,
               profilePictureUrl:
                 accountStatus?.account?.profilePictureUrl ?? undefined,
@@ -1079,6 +1299,38 @@ function ToggleCard({
         <Switch checked={enabled} onCheckedChange={onToggle} />
       </div>
       {children}
+    </div>
+  );
+}
+
+function ValidationIssuesNotice({
+  title,
+  issues,
+}: {
+  title: string;
+  issues: string[];
+}) {
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-medium text-amber-900">{title}</p>
+          {issues.map((issue) => (
+            <p key={issue} className="text-xs leading-relaxed text-amber-800">
+              {issue}
+            </p>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InlineWarning({ text }: { text: string }) {
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+      <p className="text-xs leading-relaxed text-amber-800">{text}</p>
     </div>
   );
 }

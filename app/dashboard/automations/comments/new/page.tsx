@@ -4,7 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowLeft, X, Plus, HelpCircle, Info } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  X,
+  Plus,
+  HelpCircle,
+  Info,
+} from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Switch } from "@/components/ui/switch";
 import { PostPickerModal } from "@/components/dashboard/post-picker-modal";
@@ -14,6 +21,11 @@ import {
   type LinkButtonConfig,
 } from "@/components/dashboard/link-buttons-editor";
 import { OpeningDmInfoModal } from "@/components/dashboard/opening-dm-info-modal";
+import {
+  getNormalizedCommentAutomationKeywords,
+  getCommentAutomationFormValidationIssues,
+  mergeCommentAutomationKeywords,
+} from "@/lib/comment-automation-ui";
 
 type PostScope = "specific" | "any" | "next";
 type CommentFilter = "specific_words" | "any_word";
@@ -78,17 +90,25 @@ export default function NewCommentAutomationPage() {
   );
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
 
   // Get selected media items for thumbnail previews
   const selectedMedia = media.filter((m) =>
     selectedMediaIds.includes(m.mediaId),
   );
+  const mergedTriggerKeywords = mergeCommentAutomationKeywords(
+    triggerKeywords,
+    keywordInput,
+  );
+  const normalizedTriggerKeywords = getNormalizedCommentAutomationKeywords(
+    triggerKeywords,
+    keywordInput,
+  );
 
   function addKeyword() {
-    const trimmed = keywordInput.trim().toLowerCase();
-    if (trimmed && !triggerKeywords.includes(trimmed)) {
-      setTriggerKeywords((prev) => [...prev, trimmed]);
-    }
+    setTriggerKeywords((prev) =>
+      mergeCommentAutomationKeywords(prev, keywordInput),
+    );
     setKeywordInput("");
   }
 
@@ -112,21 +132,26 @@ export default function NewCommentAutomationPage() {
   }
 
   function addExampleKeyword(keyword: string) {
-    const lower = keyword.toLowerCase();
-    if (!triggerKeywords.includes(lower)) {
-      setTriggerKeywords((prev) => [...prev, lower]);
-    }
+    setTriggerKeywords((prev) => mergeCommentAutomationKeywords(prev, keyword));
   }
 
-  const isValid =
-    name.trim().length > 0 &&
-    (postScope !== "specific" || selectedMediaIds.length > 0) &&
-    (commentFilter !== "specific_words" || triggerKeywords.length > 0) &&
-    (linkDmText.trim().length > 0 || linkButtons.length > 0);
+  const validationIssues = getCommentAutomationFormValidationIssues({
+    name,
+    postScope,
+    selectedMediaIds,
+    commentFilter,
+    triggerKeywords: mergedTriggerKeywords,
+    followGateEnabled,
+    linkDmText,
+    linkButtons,
+    followUpEnabled,
+  });
+  const isValid = validationIssues.length === 0;
 
   async function handleSubmit(goLive: boolean) {
     if (!isValid || isSubmitting) return;
     setIsSubmitting(true);
+    setSubmissionError(null);
 
     try {
       const primaryLink = linkButtons[0] ?? null;
@@ -135,7 +160,8 @@ export default function NewCommentAutomationPage() {
         postScope,
         selectedMediaIds,
         commentFilter,
-        triggerKeywords,
+        triggerKeywords: normalizedTriggerKeywords,
+        triggerKeywordLabels: mergedTriggerKeywords,
         commentReplyEnabled,
         commentReplyTexts: commentReplyTexts.filter((t) => t.trim()),
         openingDmEnabled,
@@ -157,6 +183,11 @@ export default function NewCommentAutomationPage() {
       router.push(`/dashboard/automations/comments/${result.automationId}`);
     } catch (error) {
       console.error("Failed to create automation:", error);
+      setSubmissionError(
+        error instanceof Error
+          ? error.message
+          : "Failed to create automation.",
+      );
       setIsSubmitting(false);
     }
   }
@@ -219,6 +250,20 @@ export default function NewCommentAutomationPage() {
                 className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 focus:border-ring transition"
               />
             </div>
+
+            {validationIssues.length > 0 ? (
+              <ValidationIssuesNotice
+                title="Fix these items before saving"
+                issues={validationIssues}
+              />
+            ) : null}
+
+            {submissionError ? (
+              <ValidationIssuesNotice
+                title="Automation could not be saved"
+                issues={[submissionError]}
+              />
+            ) : null}
 
             {/* ─── Section 1: When someone comments on ─────────── */}
             <div className="flex flex-col gap-3">
@@ -340,6 +385,12 @@ export default function NewCommentAutomationPage() {
                   </span>
                   <HelpCircle className="size-4 text-muted-foreground" />
                 </div>
+                {postScope === "next" ? (
+                  <p className="mt-3 ml-8 text-xs leading-relaxed text-muted-foreground">
+                    This locks to the first new post or reel published after you
+                    go live.
+                  </p>
+                ) : null}
               </OptionCard>
             </div>
 
@@ -392,6 +443,11 @@ export default function NewCommentAutomationPage() {
                       type="text"
                       value={keywordInput}
                       onChange={(e) => setKeywordInput(e.target.value)}
+                      onBlur={() => {
+                        if (keywordInput.trim()) {
+                          addKeyword();
+                        }
+                      }}
                       onClick={(e) => e.stopPropagation()}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === ",") {
@@ -544,7 +600,7 @@ export default function NewCommentAutomationPage() {
                 onToggle={setFollowGateEnabled}
               >
                 {followGateEnabled && (
-                  <div className="mt-3">
+                  <div className="mt-3 flex flex-col gap-3">
                     <div className="rounded-lg border border-border bg-muted/30 p-3">
                       <textarea
                         value={followGateText}
@@ -555,6 +611,7 @@ export default function NewCommentAutomationPage() {
                         className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed"
                       />
                     </div>
+                    <InlineWarning text="Follow status is verified after the user interacts in DM. If Meta still requires profile consent, they'll be asked to send a reply so verification can complete." />
                   </div>
                 )}
               </ToggleCard>
@@ -622,7 +679,7 @@ export default function NewCommentAutomationPage() {
                 onToggle={setFollowUpEnabled}
               >
                 {followUpEnabled && (
-                  <div className="mt-3">
+                  <div className="mt-3 flex flex-col gap-3">
                     <div className="rounded-lg border border-border bg-muted/30 p-3">
                       <textarea
                         value={followUpText}
@@ -633,6 +690,14 @@ export default function NewCommentAutomationPage() {
                         className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed"
                       />
                     </div>
+                    {linkButtons.length === 0 ? (
+                      <InlineWarning text="Add at least one link button first. Follow-up only runs when clicks can be tracked." />
+                    ) : (
+                      <p className="text-xs leading-relaxed text-muted-foreground">
+                        Follow-up sends once, 6 hours after the link DM, only if
+                        no tracked link click is recorded.
+                      </p>
+                    )}
                   </div>
                 )}
               </ToggleCard>
@@ -659,6 +724,9 @@ export default function NewCommentAutomationPage() {
               emailCollectionText,
               linkDmText,
               linkButtons,
+              followUpEnabled,
+              followUpText,
+              validationIssues,
               username: accountStatus?.account?.username ?? undefined,
               profilePictureUrl:
                 accountStatus?.account?.profilePictureUrl ?? undefined,
@@ -748,6 +816,38 @@ function ToggleCard({
         <Switch checked={enabled} onCheckedChange={onToggle} />
       </div>
       {children}
+    </div>
+  );
+}
+
+function ValidationIssuesNotice({
+  title,
+  issues,
+}: {
+  title: string;
+  issues: string[];
+}) {
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-medium text-amber-900">{title}</p>
+          {issues.map((issue) => (
+            <p key={issue} className="text-xs leading-relaxed text-amber-800">
+              {issue}
+            </p>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InlineWarning({ text }: { text: string }) {
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+      <p className="text-xs leading-relaxed text-amber-800">{text}</p>
     </div>
   );
 }
