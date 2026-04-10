@@ -7,7 +7,10 @@ const nullableNumber = v.union(v.number(), v.null());
 const nullableInstagramAccountId = v.union(v.id("instagramAccounts"), v.null());
 const nullableWorkspaceId = v.union(v.id("workspaces"), v.null());
 const nullableAutomationRuleId = v.union(v.id("automationRules"), v.null());
-const nullableCommentAutomationId = v.union(v.id("commentAutomations"), v.null());
+const nullableCommentAutomationId = v.union(
+  v.id("commentAutomations"),
+  v.null(),
+);
 const nullableCommentAutomationSessionId = v.union(
   v.id("commentAutomationSessions"),
   v.null(),
@@ -73,6 +76,11 @@ export default defineSchema({
     ),
     graphAccessToken: nullableString,
     tokenExpiresAt: nullableNumber,
+    reconnectRequired: v.optional(v.boolean()),
+    lastRefreshAttemptAt: v.optional(nullableNumber),
+    lastTokenRefreshAt: v.optional(nullableNumber),
+    nextRefreshAt: v.optional(nullableNumber),
+    refreshFailureCount: v.optional(v.number()),
     scopes: v.array(v.string()),
     webhookSubscriptionStatus: v.union(
       v.literal("active"),
@@ -95,6 +103,7 @@ export default defineSchema({
     username: nullableString,
     displayName: nullableString,
     profilePictureUrl: nullableString,
+    profilePictureFetchedAt: v.optional(nullableNumber),
     firstInboundAt: v.number(),
     lastInboundAt: v.number(),
     lastMessageAt: v.number(),
@@ -125,6 +134,7 @@ export default defineSchema({
     lastMessagePreview: nullableString,
     messagingWindowClosesAt: nullableNumber,
     lastAutomationRuleId: nullableAutomationRuleId,
+    historySyncedAt: v.optional(v.number()),
   })
     .index("by_workspace_id_and_last_message_at", [
       "workspaceId",
@@ -163,6 +173,7 @@ export default defineSchema({
     sequenceEnrollmentId: nullableSequenceEnrollmentId,
   })
     .index("by_conversation_id", ["conversationId"])
+    .index("by_conversation_id_and_event_time", ["conversationId", "eventTime"])
     .index("by_contact_id", ["contactId"])
     .index("by_meta_message_id", ["metaMessageId"])
     .index("by_dedupe_key", ["dedupeKey"])
@@ -254,8 +265,10 @@ export default defineSchema({
     sequenceEnrollmentId: nullableSequenceEnrollmentId,
     status: v.union(
       v.literal("queued"),
+      v.literal("blocked_auth"),
       v.literal("sent"),
       v.literal("skipped"),
+      v.literal("skipped_expired"),
       v.literal("failed"),
     ),
     reason: nullableString,
@@ -269,7 +282,12 @@ export default defineSchema({
   })
     .index("by_workspace_id_and_event_time", ["workspaceId", "eventTime"])
     .index("by_contact_id", ["contactId"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_instagram_account_id_and_status_and_event_time", [
+      "instagramAccountId",
+      "status",
+      "eventTime",
+    ]),
   sequenceDefinitions: defineTable({
     workspaceId: v.id("workspaces"),
     name: v.string(),
@@ -431,4 +449,36 @@ export default defineSchema({
   })
     .index("by_token", ["token"])
     .index("by_session_id", ["sessionId"]),
+  contactAutomationMemberships: defineTable({
+    workspaceId: v.id("workspaces"),
+    contactId: v.id("contacts"),
+    conversationId: v.id("conversations"),
+    automationKind: v.union(
+      v.literal("rule"),
+      v.literal("comment_automation"),
+      v.literal("sequence"),
+    ),
+    automationRuleId: nullableAutomationRuleId,
+    commentAutomationId: nullableCommentAutomationId,
+    sequenceDefinitionId: nullableSequenceDefinitionId,
+    firstMatchedAt: v.number(),
+    lastMatchedAt: v.number(),
+  })
+    .index("by_contact_id_and_last_matched_at", ["contactId", "lastMatchedAt"])
+    .index("by_workspace_id_and_rule_id", ["workspaceId", "automationRuleId"])
+    .index("by_workspace_id_and_comment_automation_id", [
+      "workspaceId",
+      "commentAutomationId",
+    ])
+    .index("by_workspace_id_and_sequence_definition_id", [
+      "workspaceId",
+      "sequenceDefinitionId",
+    ])
+    .index("by_contact_and_kind_and_rule_and_comment_and_sequence", [
+      "contactId",
+      "automationKind",
+      "automationRuleId",
+      "commentAutomationId",
+      "sequenceDefinitionId",
+    ]),
 });

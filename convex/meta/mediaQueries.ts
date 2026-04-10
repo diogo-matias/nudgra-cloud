@@ -67,10 +67,7 @@ export const refreshMedia = action({
     }
 
     await ctx.runAction(internal.meta.media.fetchAccountMedia, {
-      instagramAccountId: context.instagramAccountId,
-      accessToken: context.accessToken,
-      workspaceId: context.workspaceId,
-      instagramAccountDocId: context.accountDocId,
+      accountId: context.accountDocId,
     });
 
     return { success: true };
@@ -92,8 +89,6 @@ export const getRefreshContext = internalQuery({
     return {
       workspaceId: workspace._id,
       accountDocId: account._id,
-      instagramAccountId: account.instagramAccountId,
-      accessToken: account.graphAccessToken,
     };
   },
 });

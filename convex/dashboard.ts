@@ -1,7 +1,10 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc } from "./_generated/dataModel";
-import { getWorkspaceInstagramAccount, requireCurrentWorkspace } from "./lib/auth";
+import {
+  getWorkspaceInstagramAccount,
+  requireCurrentWorkspace,
+} from "./lib/auth";
 
 function buildActivityLabel(args: {
   delivery?: Doc<"deliveryAttempts">;
@@ -10,12 +13,20 @@ function buildActivityLabel(args: {
   ruleName?: string | null;
 }) {
   if (args.delivery) {
-    const subject = args.contactUsername ? `@${args.contactUsername}` : "contact";
+    const subject = args.contactUsername
+      ? `@${args.contactUsername}`
+      : "contact";
     if (args.delivery.status === "sent") {
       return `Reply sent to ${subject}.`;
     }
+    if (args.delivery.status === "blocked_auth") {
+      return `Reply is waiting for Instagram token recovery for ${subject}.`;
+    }
     if (args.delivery.status === "skipped") {
       return `Reply skipped for ${subject}.`;
+    }
+    if (args.delivery.status === "skipped_expired") {
+      return `Reply expired before it could be sent to ${subject}.`;
     }
     return `Reply failed for ${subject}.`;
   }
@@ -331,16 +342,25 @@ export const getConversationDetail = query({
     const contact = await ctx.db.get(conversation.contactId);
     const messages = await ctx.db
       .query("messages")
-      .withIndex("by_conversation_id", (q) => q.eq("conversationId", conversation._id))
+      .withIndex("by_conversation_id_and_event_time", (q) =>
+        q.eq("conversationId", conversation._id),
+      )
+      .order("desc")
       .take(200);
     const contactTags = await ctx.db
       .query("contactTags")
-      .withIndex("by_contact_id", (q) => q.eq("contactId", conversation.contactId))
+      .withIndex("by_contact_id", (q) =>
+        q.eq("contactId", conversation.contactId),
+      )
       .take(20);
-    const tags = await Promise.all(contactTags.map((contactTag) => ctx.db.get(contactTag.tagId)));
+    const tags = await Promise.all(
+      contactTags.map((contactTag) => ctx.db.get(contactTag.tagId)),
+    );
     const enrollments = await ctx.db
       .query("sequenceEnrollments")
-      .withIndex("by_contact_id", (q) => q.eq("contactId", conversation.contactId))
+      .withIndex("by_contact_id", (q) =>
+        q.eq("contactId", conversation.contactId),
+      )
       .take(20);
     const enrollmentSummaries = await Promise.all(
       enrollments.map(async (enrollment) => {
@@ -355,7 +375,9 @@ export const getConversationDetail = query({
       }),
     );
 
-    const orderedMessages = [...messages].sort((a, b) => a.eventTime - b.eventTime);
+    const orderedMessages = [...messages].sort(
+      (a, b) => a.eventTime - b.eventTime,
+    );
 
     return {
       id: conversation._id,

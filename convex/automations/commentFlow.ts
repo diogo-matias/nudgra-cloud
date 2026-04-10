@@ -1,6 +1,7 @@
 import { internal } from "../_generated/api";
 import { Doc, Id } from "../_generated/dataModel";
 import {
+  ActionCtx,
   internalAction,
   internalMutation,
   internalQuery,
@@ -13,6 +14,11 @@ import {
   queueAutomatedButtonTemplate,
   queueAutomatedTextReply,
 } from "../meta/sendHelpers";
+import {
+  isMetaAuthError,
+  isMetaConsentRequiredError,
+  parseMetaApiError,
+} from "../meta/authShared";
 
 type CommentAutomation = Doc<"commentAutomations">;
 type WebUrlButton = Extract<AutomatedButton, { type: "web_url" }>;
@@ -46,10 +52,7 @@ type AdvanceSessionInput = {
   postbackPayload: string | null;
   quickReplyPayload: string | null;
 };
-type FollowGateCheckStatus =
-  | "following"
-  | "not_following"
-  | "consent_required";
+type FollowGateCheckStatus = "following" | "not_following" | "consent_required";
 type FollowGateInputMode = "button" | "reply";
 
 const FOLLOW_UP_DELAY_MS = 6 * 60 * 60 * 1000;
@@ -68,9 +71,7 @@ const OPENING_DM_POSTBACK_PAYLOAD = "comment_automation:opening_dm";
 const FOLLOW_GATE_POSTBACK_PAYLOAD = "comment_automation:follow_gate";
 const FOLLOW_GATE_BUTTON_TEXT = "I'm following";
 
-function getFollowGateInputMode(
-  consentRequired: boolean,
-): FollowGateInputMode {
+function getFollowGateInputMode(consentRequired: boolean): FollowGateInputMode {
   return consentRequired ? "reply" : "button";
 }
 
@@ -98,7 +99,9 @@ function matchesFollowGateInteraction(
 function isTerminalSessionStep(
   step: Doc<"commentAutomationSessions">["currentStep"],
 ) {
-  return step === "completed" || step === "link_sent" || step === "guardrail_tripped";
+  return (
+    step === "completed" || step === "link_sent" || step === "guardrail_tripped"
+  );
 }
 
 function buildGuardrailReason(args: {
@@ -312,10 +315,12 @@ function chunkButtons(buttons: AutomatedButton[], size: number) {
   return chunks;
 }
 
-function getLinkButtons(automation: Pick<
-  CommentAutomation,
-  "linkButtons" | "linkUrl" | "linkButtonText"
->): WebUrlButton[] {
+function getLinkButtons(
+  automation: Pick<
+    CommentAutomation,
+    "linkButtons" | "linkUrl" | "linkButtonText"
+  >,
+): WebUrlButton[] {
   if (automation.linkButtons && automation.linkButtons.length > 0) {
     return automation.linkButtons.map((button) => ({
       type: "web_url" as const,
@@ -366,7 +371,9 @@ async function getLatestSessionsForContactAutomation(
   return await ctx.db
     .query("commentAutomationSessions")
     .withIndex("by_contact_id_and_comment_automation_id", (q) =>
-      q.eq("contactId", contactId).eq("commentAutomationId", commentAutomationId),
+      q
+        .eq("contactId", contactId)
+        .eq("commentAutomationId", commentAutomationId),
     )
     .order("desc")
     .take(10);
@@ -434,6 +441,17 @@ export async function startCommentAutomationSession(
     followUpSentAt: null,
   });
 
+  await ctx.runMutation(internal.contacts.upsertContactAutomationMembership, {
+    workspaceId: args.workspaceId,
+    contactId: args.contactId,
+    conversationId: args.conversationId,
+    automationKind: "comment_automation",
+    automationRuleId: null,
+    commentAutomationId: args.commentAutomationId,
+    sequenceDefinitionId: null,
+    matchedAt: now,
+  });
+
   if (firstStep === "opening_dm_sent") {
     await sendOpeningDm(ctx, {
       sessionId,
@@ -496,10 +514,7 @@ export async function advanceCommentAutomationSession(
   inbound: AdvanceSessionInput,
 ) {
   const session = await ctx.db.get(sessionId);
-  if (
-    !session ||
-    isTerminalSessionStep(session.currentStep)
-  ) {
+  if (!session || isTerminalSessionStep(session.currentStep)) {
     return null;
   }
 
@@ -759,7 +774,10 @@ async function sendLinkDm(
       trackedButtons.push({
         type: "web_url",
         title: button.title,
-        url: new URL(`/api/comment-automation/links/${token}`, siteUrl).toString(),
+        url: new URL(
+          `/api/comment-automation/links/${token}`,
+          siteUrl,
+        ).toString(),
       });
     }
   }
@@ -920,57 +938,77 @@ export const getCommentAutomationSessionActionContext = internalQuery({
   },
 });
 
-function parseGraphApiErrorMessage(responseText: string) {
-  try {
-    const parsed = JSON.parse(responseText) as {
-      error?: { message?: string };
-    };
-    if (typeof parsed.error?.message === "string") {
-      return parsed.error.message;
+async function checkInstagramFollowGateStatus(
+  ctx: ActionCtx,
+  args: {
+    accountId: Id<"instagramAccounts">;
+    accessToken: string;
+    graphApiVersion: string;
+    instagramScopedUserId: string;
+  },
+): Promise<FollowGateCheckStatus> {
+  const request = async (accessToken: string) => {
+    const endpoint = new URL(
+      `https://graph.instagram.com/${
+        args.graphApiVersion || META_GRAPH_API_VERSION
+      }/${args.instagramScopedUserId}`,
+    );
+    endpoint.searchParams.set("fields", "is_user_follow_business");
+    endpoint.searchParams.set("access_token", accessToken);
+
+    const response = await fetch(endpoint);
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      return {
+        ok: false as const,
+        error: parseMetaApiError(
+          responseText,
+          "Failed to verify whether the Instagram user follows the business account.",
+        ),
+      };
     }
-  } catch {
-    // Fall back to the raw response text below.
+
+    return {
+      ok: true as const,
+      payload: JSON.parse(responseText) as {
+        is_user_follow_business?: boolean;
+      },
+    };
+  };
+
+  let result = await request(args.accessToken);
+  if (!result.ok && isMetaAuthError(result.error)) {
+    const refreshResult: { tokenUsable: boolean } = await ctx.runAction(
+      internal.meta.tokenLifecycle.refreshAccountToken,
+      {
+        accountId: args.accountId,
+        reason: "auth_error",
+      },
+    );
+
+    if (refreshResult.tokenUsable) {
+      const refreshedAccount = await ctx.runQuery(
+        internal.accounts.getAccountTokenLifecycleContext,
+        {
+          accountId: args.accountId,
+        },
+      );
+      if (refreshedAccount?.graphAccessToken) {
+        result = await request(refreshedAccount.graphAccessToken);
+      }
+    }
   }
 
-  return responseText;
-}
-
-function isConsentRequiredError(message: string) {
-  return message.toLowerCase().includes("user consent is required");
-}
-
-async function checkInstagramFollowGateStatus(args: {
-  accessToken: string;
-  graphApiVersion: string;
-  instagramScopedUserId: string;
-}): Promise<FollowGateCheckStatus> {
-  const endpoint = new URL(
-    `https://graph.instagram.com/${
-      args.graphApiVersion || META_GRAPH_API_VERSION
-    }/${args.instagramScopedUserId}`,
-  );
-  endpoint.searchParams.set("fields", "is_user_follow_business");
-  endpoint.searchParams.set("access_token", args.accessToken);
-
-  const response = await fetch(endpoint);
-  const responseText = await response.text();
-
-  if (!response.ok) {
-    const message = parseGraphApiErrorMessage(responseText);
-    if (isConsentRequiredError(message)) {
+  if (!result.ok) {
+    if (isMetaConsentRequiredError(result.error)) {
       return "consent_required";
     }
 
-    throw new Error(
-      message || "Failed to verify whether the Instagram user follows the business account.",
-    );
+    throw new Error(result.error.message);
   }
 
-  const parsed = JSON.parse(responseText) as {
-    is_user_follow_business?: boolean;
-  };
-
-  return parsed.is_user_follow_business ? "following" : "not_following";
+  return result.payload.is_user_follow_business ? "following" : "not_following";
 }
 
 export const handleFollowGateCheckResult = internalMutation({
@@ -1063,7 +1101,8 @@ export const processInboundCommentAutomationInteraction = internalAction({
 
     if (!automation.followGateEnabled || (!isOpeningStep && !isFollowStep)) {
       await ctx.runMutation(
-        internal.automations.commentFlow.advanceCommentAutomationSessionInternal,
+        internal.automations.commentFlow
+          .advanceCommentAutomationSessionInternal,
         {
           sessionId: args.sessionId,
           hasMessage: args.hasMessage,
@@ -1075,10 +1114,7 @@ export const processInboundCommentAutomationInteraction = internalAction({
       return null;
     }
 
-    if (
-      isOpeningStep &&
-      args.postbackPayload !== OPENING_DM_POSTBACK_PAYLOAD
-    ) {
+    if (isOpeningStep && args.postbackPayload !== OPENING_DM_POSTBACK_PAYLOAD) {
       return null;
     }
 
@@ -1097,7 +1133,8 @@ export const processInboundCommentAutomationInteraction = internalAction({
     const followStatus =
       account.graphAccessToken === null
         ? ("consent_required" as const)
-        : await checkInstagramFollowGateStatus({
+        : await checkInstagramFollowGateStatus(ctx, {
+            accountId: account._id,
             accessToken: account.graphAccessToken,
             graphApiVersion: account.graphApiVersion,
             instagramScopedUserId: contact.instagramUserId,
@@ -1129,7 +1166,11 @@ function extractEmail(text: string | null): string | null {
 export function matchesCommentAutomation(args: {
   automation: Pick<
     CommentAutomation,
-    "postScope" | "selectedMediaIds" | "commentFilter" | "triggerKeywords" | "nextLockedMediaId"
+    | "postScope"
+    | "selectedMediaIds"
+    | "commentFilter"
+    | "triggerKeywords"
+    | "nextLockedMediaId"
   >;
   mediaId: string;
   commentText: string | null;

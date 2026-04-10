@@ -4,6 +4,12 @@ import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
 import { v } from "convex/values";
 import { META_GRAPH_API_VERSION } from "./config";
+import {
+  canUseAccountToken,
+  isMetaAuthError,
+  isMetaTransientError,
+  parseMetaApiError,
+} from "./authShared";
 
 type ParsedQuickReply = {
   content_type: "text";
@@ -51,21 +57,6 @@ function parseRetryDelayMs(response: Response) {
   }
 
   return retryAfterSeconds * 1000;
-}
-
-function parseMetaErrorMessage(responseText: string) {
-  try {
-    const parsed = JSON.parse(responseText) as {
-      error?: { message?: string };
-    };
-    return parsed.error?.message ?? responseText;
-  } catch {
-    return responseText;
-  }
-}
-
-function isTransientFailure(status: number) {
-  return status === 429 || status >= 500;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -210,22 +201,144 @@ function buildMetaMessagePayload(
   };
 }
 
+function getUnavailableAttemptStatus(args: {
+  account: {
+    status: "connected" | "connection_error" | "disconnected";
+  };
+  conversation: {
+    messagingWindowClosesAt: number | null;
+  };
+}) {
+  const now = Date.now();
+  const policyWindowOpen =
+    args.conversation.messagingWindowClosesAt !== null &&
+    args.conversation.messagingWindowClosesAt >= now;
+
+  if (!policyWindowOpen) {
+    return {
+      status: "skipped_expired" as const,
+      reason:
+        "24-hour messaging window expired before the delivery could be sent.",
+    };
+  }
+
+  if (args.account.status === "disconnected") {
+    return {
+      status: "skipped" as const,
+      reason:
+        "Instagram account was disconnected before the delivery could be sent.",
+    };
+  }
+
+  return {
+    status: "blocked_auth" as const,
+    reason: "Outbound sending is paused until Instagram token access recovers.",
+  };
+}
+
 export const performQueuedDelivery = internalAction({
   args: { deliveryAttemptId: v.id("deliveryAttempts") },
   handler: async (ctx, args) => {
-    const context = await ctx.runQuery(
+    let context = await ctx.runQuery(
       internal.meta.send.getQueuedDeliveryContext,
       {
         deliveryAttemptId: args.deliveryAttemptId,
       },
     );
 
-    if (
-      context === null ||
-      context.attempt.status !== "queued" ||
-      context.account.status !== "connected" ||
-      !context.account.graphAccessToken
-    ) {
+    if (context === null || context.attempt.status !== "queued") {
+      return null;
+    }
+
+    const tokenUsable = canUseAccountToken({
+      status: context.account.status,
+      graphAccessToken: context.account.graphAccessToken,
+      reconnectRequired: context.account.reconnectRequired ?? false,
+    });
+
+    if (!tokenUsable) {
+      const unavailable = getUnavailableAttemptStatus({
+        account: context.account,
+        conversation: context.conversation,
+      });
+      await ctx.runMutation(internal.meta.send.markDeliveryAttemptResult, {
+        deliveryAttemptId: context.attempt._id,
+        status: unavailable.status,
+        reason: unavailable.reason,
+        responsePayload: null,
+        metaMessageId: null,
+      });
+      return null;
+    }
+
+    const tokenExpired =
+      context.account.tokenExpiresAt !== null &&
+      context.account.tokenExpiresAt <= Date.now();
+
+    if (tokenExpired) {
+      const refreshResult: {
+        tokenUsable: boolean;
+      } = await ctx.runAction(
+        internal.meta.tokenLifecycle.refreshAccountToken,
+        {
+          accountId: context.account._id,
+          reason: "scheduled",
+        },
+      );
+
+      if (!refreshResult.tokenUsable) {
+        await ctx.runMutation(internal.meta.send.markDeliveryAttemptResult, {
+          deliveryAttemptId: context.attempt._id,
+          status: "blocked_auth",
+          reason:
+            "Outbound sending is paused until Instagram token access recovers.",
+          responsePayload: null,
+          metaMessageId: null,
+        });
+        return null;
+      }
+
+      context = await ctx.runQuery(
+        internal.meta.send.getQueuedDeliveryContext,
+        {
+          deliveryAttemptId: args.deliveryAttemptId,
+        },
+      );
+      if (context === null || context.attempt.status !== "queued") {
+        return null;
+      }
+
+      const refreshedTokenUsable = canUseAccountToken({
+        status: context.account.status,
+        graphAccessToken: context.account.graphAccessToken,
+        reconnectRequired: context.account.reconnectRequired ?? false,
+      });
+      if (!refreshedTokenUsable) {
+        const unavailable = getUnavailableAttemptStatus({
+          account: context.account,
+          conversation: context.conversation,
+        });
+        await ctx.runMutation(internal.meta.send.markDeliveryAttemptResult, {
+          deliveryAttemptId: context.attempt._id,
+          status: unavailable.status,
+          reason: unavailable.reason,
+          responsePayload: null,
+          metaMessageId: null,
+        });
+        return null;
+      }
+    }
+
+    const accessToken = context.account.graphAccessToken;
+    if (accessToken === null) {
+      await ctx.runMutation(internal.meta.send.markDeliveryAttemptResult, {
+        deliveryAttemptId: context.attempt._id,
+        status: "blocked_auth",
+        reason:
+          "Outbound sending is paused until Instagram token access recovers.",
+        responsePayload: null,
+        metaMessageId: null,
+      });
       return null;
     }
 
@@ -234,7 +347,7 @@ export const performQueuedDelivery = internalAction({
         context.account.graphApiVersion || META_GRAPH_API_VERSION
       }/${context.account.instagramAccountId}/messages`,
     );
-    endpoint.searchParams.set("access_token", context.account.graphAccessToken);
+    endpoint.searchParams.set("access_token", accessToken);
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -256,10 +369,45 @@ export const performQueuedDelivery = internalAction({
     const responseText = await response.text();
 
     if (!response.ok) {
-      const reason = parseMetaErrorMessage(responseText);
+      const parsedError = parseMetaApiError(
+        responseText,
+        `Meta rejected the delivery with status ${response.status}.`,
+      );
+      const reason = parsedError.message;
+
+      if (isMetaAuthError(parsedError)) {
+        const refreshResult: {
+          tokenUsable: boolean;
+        } = await ctx.runAction(
+          internal.meta.tokenLifecycle.refreshAccountToken,
+          {
+            accountId: context.account._id,
+            reason: "auth_error",
+          },
+        );
+
+        if (refreshResult.tokenUsable && context.attempt.attemptNumber < 3) {
+          await ctx.runMutation(internal.meta.send.rescheduleDeliveryAttempt, {
+            deliveryAttemptId: context.attempt._id,
+            delayMs: 0,
+            reason: "Retrying delivery after token refresh.",
+            responsePayload: responseText,
+          });
+          return null;
+        }
+
+        await ctx.runMutation(internal.meta.send.markDeliveryAttemptResult, {
+          deliveryAttemptId: context.attempt._id,
+          status: "blocked_auth",
+          reason,
+          responsePayload: responseText,
+          metaMessageId: null,
+        });
+        return null;
+      }
 
       if (
-        isTransientFailure(response.status) &&
+        isMetaTransientError(response.status) &&
         context.attempt.attemptNumber < 3
       ) {
         await ctx.runMutation(internal.meta.send.rescheduleDeliveryAttempt, {

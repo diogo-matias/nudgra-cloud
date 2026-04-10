@@ -3,7 +3,9 @@ import {
   internalQuery,
   mutation,
   query,
+  MutationCtx,
 } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import {
@@ -12,9 +14,50 @@ import {
   requireCurrentUserId,
   requireCurrentWorkspace,
 } from "./lib/auth";
+import {
+  computeNextRefreshAt,
+  computeRefreshRetryDelayMs,
+} from "./meta/authShared";
 
 const nullableString = v.union(v.string(), v.null());
 const nullableNumber = v.union(v.number(), v.null());
+const connectionHealthStatusValidator = v.union(
+  v.literal("connected"),
+  v.literal("connection_error"),
+);
+const refreshReasonValidator = v.union(
+  v.literal("scheduled"),
+  v.literal("auth_error"),
+  v.literal("manual_reconnect"),
+);
+
+async function scheduleAccountRefresh(
+  ctx: MutationCtx,
+  accountId: Id<"instagramAccounts">,
+  nextRefreshAt: number | null,
+) {
+  if (nextRefreshAt === null) {
+    return;
+  }
+
+  await ctx.scheduler.runAfter(
+    Math.max(nextRefreshAt - Date.now(), 0),
+    internal.meta.tokenLifecycle.refreshAccountToken,
+    {
+      accountId,
+      reason: "scheduled",
+    },
+  );
+}
+
+async function scheduleBlockedDeliveryReplay(
+  ctx: MutationCtx,
+  accountId: Id<"instagramAccounts">,
+) {
+  await ctx.scheduler.runAfter(0, internal.meta.send.replayBlockedDeliveries, {
+    accountId,
+  });
+}
 
 function serializeAccount(account: Doc<"instagramAccounts">) {
   return {
@@ -25,6 +68,11 @@ function serializeAccount(account: Doc<"instagramAccounts">) {
     profilePictureUrl: account.profilePictureUrl ?? null,
     accountType: account.accountType,
     status: account.status,
+    reconnectRequired: account.reconnectRequired ?? false,
+    lastRefreshAttemptAt: account.lastRefreshAttemptAt ?? null,
+    lastTokenRefreshAt: account.lastTokenRefreshAt ?? null,
+    nextRefreshAt: account.nextRefreshAt ?? null,
+    refreshFailureCount: account.refreshFailureCount ?? 0,
     scopes: account.scopes,
     tokenExpiresAt: account.tokenExpiresAt,
     webhookSubscriptionStatus: account.webhookSubscriptionStatus,
@@ -109,8 +157,22 @@ export const disconnectCurrentAccount = mutation({
       status: "disconnected",
       graphAccessToken: null,
       webhookSubscriptionStatus: "disabled",
+      reconnectRequired: false,
+      lastRefreshAttemptAt: null,
+      nextRefreshAt: null,
+      refreshFailureCount: 0,
+      lastError: null,
       disconnectedAt: Date.now(),
     });
+
+    await ctx.runMutation(
+      internal.meta.send.terminalizePendingDeliveriesForAccount,
+      {
+        accountId: account._id,
+        reason:
+          "Instagram account was disconnected before the delivery could be sent.",
+      },
+    );
 
     const activeEnrollments = await ctx.db
       .query("sequenceEnrollments")
@@ -147,9 +209,23 @@ export const emergencyDisconnectAccount = internalMutation({
       status: "disconnected",
       graphAccessToken: null,
       webhookSubscriptionStatus: "disabled",
+      reconnectRequired: false,
+      lastRefreshAttemptAt: null,
+      nextRefreshAt: null,
+      refreshFailureCount: 0,
       disconnectedAt,
       lastError: args.reason ?? "Emergency disconnect triggered from CLI.",
     });
+
+    await ctx.runMutation(
+      internal.meta.send.terminalizePendingDeliveriesForAccount,
+      {
+        accountId: account._id,
+        reason:
+          args.reason ??
+          "Instagram account was disconnected before the delivery could be sent.",
+      },
+    );
 
     const activeEnrollments = await ctx.db
       .query("sequenceEnrollments")
@@ -182,15 +258,27 @@ export const emergencyReconnectAccount = internalMutation({
     }
 
     const connectedAt = Date.now();
+    const nextRefreshAt = computeNextRefreshAt(
+      account.tokenExpiresAt ?? null,
+      connectedAt,
+    );
 
     await ctx.db.patch(account._id, {
       status: "connected",
       graphAccessToken: args.graphAccessToken,
       webhookSubscriptionStatus: "active",
+      reconnectRequired: false,
+      lastRefreshAttemptAt: null,
+      lastTokenRefreshAt: connectedAt,
+      nextRefreshAt,
+      refreshFailureCount: 0,
       disconnectedAt: null,
       connectedAt,
       lastError: args.reason ?? null,
     });
+
+    await scheduleAccountRefresh(ctx, account._id, nextRefreshAt);
+    await scheduleBlockedDeliveryReplay(ctx, account._id);
 
     return { reconnected: true, connectedAt };
   },
@@ -252,6 +340,11 @@ export const upsertConnectedAccount = internalMutation({
       )
       .unique();
 
+    const connectedAt = Date.now();
+    const nextRefreshAt = computeNextRefreshAt(
+      args.tokenExpiresAt,
+      connectedAt,
+    );
     const patch = {
       workspaceId: session.workspaceId,
       instagramAccountId: args.instagramAccountId,
@@ -267,7 +360,12 @@ export const upsertConnectedAccount = internalMutation({
       webhookSubscriptionStatus: args.webhookSubscriptionStatus,
       lastWebhookAt: null,
       lastError: args.lastError,
-      connectedAt: Date.now(),
+      reconnectRequired: false,
+      lastRefreshAttemptAt: null,
+      lastTokenRefreshAt: connectedAt,
+      nextRefreshAt,
+      refreshFailureCount: 0,
+      connectedAt,
       disconnectedAt: null,
       graphApiVersion: args.graphApiVersion,
     };
@@ -286,6 +384,11 @@ export const upsertConnectedAccount = internalMutation({
       errorMessage: args.lastError,
     });
 
+    if (args.status !== "disconnected") {
+      await scheduleAccountRefresh(ctx, accountId, nextRefreshAt);
+      await scheduleBlockedDeliveryReplay(ctx, accountId);
+    }
+
     return { accountId };
   },
 });
@@ -302,6 +405,35 @@ export const getConnectedAccountWithToken = internalQuery({
       id: account._id,
       instagramAccountId: account.instagramAccountId,
       graphAccessToken: account.graphAccessToken,
+      status: account.status,
+      reconnectRequired: account.reconnectRequired ?? false,
+      graphApiVersion: account.graphApiVersion,
+    };
+  },
+});
+
+export const getAccountTokenLifecycleContext = internalQuery({
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.accountId);
+    if (account === null) {
+      return null;
+    }
+
+    return {
+      id: account._id,
+      workspaceId: account.workspaceId,
+      instagramAccountId: account.instagramAccountId,
+      status: account.status,
+      graphAccessToken: account.graphAccessToken,
+      tokenExpiresAt: account.tokenExpiresAt,
+      reconnectRequired: account.reconnectRequired ?? false,
+      lastRefreshAttemptAt: account.lastRefreshAttemptAt ?? null,
+      lastTokenRefreshAt: account.lastTokenRefreshAt ?? null,
+      nextRefreshAt: account.nextRefreshAt ?? null,
+      refreshFailureCount: account.refreshFailureCount ?? 0,
+      graphApiVersion: account.graphApiVersion,
+      lastError: account.lastError,
     };
   },
 });
@@ -336,6 +468,159 @@ export const patchAccountProfile = internalMutation({
         ? { accountType: args.accountType }
         : {}),
     });
+  },
+});
+
+export const markAccountRefreshAttemptStarted = internalMutation({
+  args: {
+    accountId: v.id("instagramAccounts"),
+    attemptedAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.accountId);
+    if (account === null || account.status === "disconnected") {
+      return null;
+    }
+
+    await ctx.db.patch(account._id, {
+      lastRefreshAttemptAt: args.attemptedAt,
+    });
+
+    return null;
+  },
+});
+
+export const applyTokenRefreshSuccess = internalMutation({
+  args: {
+    accountId: v.id("instagramAccounts"),
+    graphAccessToken: v.string(),
+    tokenExpiresAt: nullableNumber,
+    refreshedAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.accountId);
+    if (account === null || account.status === "disconnected") {
+      return null;
+    }
+
+    const nextRefreshAt = computeNextRefreshAt(
+      args.tokenExpiresAt,
+      args.refreshedAt,
+    );
+
+    await ctx.db.patch(account._id, {
+      status: "connected",
+      graphAccessToken: args.graphAccessToken,
+      tokenExpiresAt: args.tokenExpiresAt,
+      reconnectRequired: false,
+      lastRefreshAttemptAt: args.refreshedAt,
+      lastTokenRefreshAt: args.refreshedAt,
+      nextRefreshAt,
+      refreshFailureCount: 0,
+      lastError: null,
+      disconnectedAt: null,
+    });
+
+    await scheduleAccountRefresh(ctx, account._id, nextRefreshAt);
+    await scheduleBlockedDeliveryReplay(ctx, account._id);
+
+    return {
+      nextRefreshAt,
+    };
+  },
+});
+
+export const scheduleTokenRefreshRetry = internalMutation({
+  args: {
+    accountId: v.id("instagramAccounts"),
+    attemptedAt: v.number(),
+    lastError: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.accountId);
+    if (account === null || account.status === "disconnected") {
+      return null;
+    }
+
+    const refreshFailureCount = (account.refreshFailureCount ?? 0) + 1;
+    const delayMs = computeRefreshRetryDelayMs(refreshFailureCount);
+    const nextRefreshAt = args.attemptedAt + delayMs;
+
+    await ctx.db.patch(account._id, {
+      status: "connected",
+      reconnectRequired: false,
+      lastRefreshAttemptAt: args.attemptedAt,
+      nextRefreshAt,
+      refreshFailureCount,
+      lastError: args.lastError,
+    });
+
+    await ctx.scheduler.runAfter(
+      delayMs,
+      internal.meta.tokenLifecycle.refreshAccountToken,
+      {
+        accountId: account._id,
+        reason: "scheduled",
+      },
+    );
+
+    return {
+      nextRefreshAt,
+      refreshFailureCount,
+    };
+  },
+});
+
+export const markAccountReconnectRequired = internalMutation({
+  args: {
+    accountId: v.id("instagramAccounts"),
+    attemptedAt: v.number(),
+    lastError: v.string(),
+    reason: refreshReasonValidator,
+  },
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.accountId);
+    if (account === null || account.status === "disconnected") {
+      return null;
+    }
+
+    await ctx.db.patch(account._id, {
+      status: "connection_error",
+      reconnectRequired: true,
+      lastRefreshAttemptAt: args.attemptedAt,
+      nextRefreshAt: null,
+      refreshFailureCount: Math.max((account.refreshFailureCount ?? 0) + 1, 1),
+      lastError: args.lastError,
+    });
+
+    return {
+      reason: args.reason,
+    };
+  },
+});
+
+export const updateAccountConnectionHealth = internalMutation({
+  args: {
+    accountId: v.id("instagramAccounts"),
+    status: v.optional(connectionHealthStatusValidator),
+    lastError: v.optional(nullableString),
+    reconnectRequired: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.accountId);
+    if (account === null) {
+      return null;
+    }
+
+    await ctx.db.patch(account._id, {
+      ...(args.status !== undefined ? { status: args.status } : {}),
+      ...(args.lastError !== undefined ? { lastError: args.lastError } : {}),
+      ...(args.reconnectRequired !== undefined
+        ? { reconnectRequired: args.reconnectRequired }
+        : {}),
+    });
+
+    return null;
   },
 });
 
