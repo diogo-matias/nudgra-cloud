@@ -204,35 +204,34 @@ export default function ContactsPage() {
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-muted/35 text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+                <thead className="border-b border-border bg-muted/30 text-[10.5px] uppercase tracking-[0.16em] text-muted-foreground">
                   <tr>
-                    <th className="px-5 py-4 font-medium">Contact</th>
-                    <th className="px-5 py-4 font-medium">Automations</th>
-                    <th className="px-5 py-4 font-medium">Tags</th>
-                    <th className="px-5 py-4 font-medium">Subscribed</th>
-                    <th className="px-5 py-4 font-medium">Last active</th>
-                    <th className="px-5 py-4 text-right font-medium">Messages</th>
+                    <th className="px-6 py-3.5 font-medium">Contact</th>
+                    <th className="px-6 py-3.5 font-medium">Automations</th>
+                    <th className="px-6 py-3.5 font-medium">Tags</th>
+                    <th className="px-6 py-3.5 font-medium">Subscribed</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="divide-y divide-border">
                   {filteredContacts.map((contact) => (
                     <tr
                       key={contact.id}
-                      className="cursor-pointer border-t border-border transition hover:bg-muted/20"
+                      className="group cursor-pointer transition-colors hover:bg-muted/25"
                       onClick={() => {
                         setSelectedContact(contact);
                         setDialogOpen(true);
                       }}
                     >
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-3">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3.5">
                           <ContactAvatar
                             displayName={contact.displayName}
                             username={contact.username}
                             profilePictureUrl={contact.profilePictureUrl}
+                            size="lg"
                           />
                           <div className="min-w-0">
-                            <p className="truncate font-medium text-foreground">
+                            <p className="truncate text-sm font-semibold text-foreground">
                               {getContactDisplayName(
                                 contact.displayName,
                                 contact.username,
@@ -246,12 +245,10 @@ export default function ContactsPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-5 py-4">
-                        <div className="flex flex-wrap gap-2">
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-1.5">
                           {contact.automations.length === 0 ? (
-                            <span className="text-xs text-muted-foreground">
-                              No automation history
-                            </span>
+                            <span className="text-xs text-muted-foreground/60">—</span>
                           ) : (
                             <>
                               {contact.automations.slice(0, 2).map((automation) => (
@@ -275,17 +272,15 @@ export default function ContactsPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-5 py-4">
-                        <div className="flex flex-wrap gap-2">
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-1.5">
                           {contact.tags.length === 0 ? (
-                            <span className="text-xs text-muted-foreground">
-                              No tags
-                            </span>
+                            <span className="text-xs text-muted-foreground/60">—</span>
                           ) : (
                             contact.tags.slice(0, 3).map((tag) => (
                               <span
                                 key={tag.id}
-                                className="inline-flex items-center rounded-full border border-border bg-muted px-2.5 py-1 text-[11px] font-medium text-foreground"
+                                className="inline-flex items-center rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-[11px] font-medium text-foreground"
                               >
                                 {tag.label}
                               </span>
@@ -293,28 +288,15 @@ export default function ContactsPage() {
                           )}
                         </div>
                       </td>
-                      <td className="px-5 py-4">
-                        <div className="space-y-1">
-                          <p className="font-medium text-foreground">
+                      <td className="px-6 py-4">
+                        <div className="space-y-0.5">
+                          <p className="text-sm font-medium text-foreground">
                             {formatRelativeTime(contact.subscribedAt)}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {formatDateTime(contact.subscribedAt)}
                           </p>
                         </div>
-                      </td>
-                      <td className="px-5 py-4">
-                        <div className="space-y-1">
-                          <p className="font-medium text-foreground">
-                            {formatRelativeTime(contact.lastMessageAt)}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {formatDateTime(contact.lastMessageAt)}
-                          </p>
-                        </div>
-                      </td>
-                      <td className="px-5 py-4 text-right text-sm font-semibold text-foreground">
-                        {contact.messageCount}
                       </td>
                     </tr>
                   ))}
