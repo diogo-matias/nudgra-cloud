@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import Link from "next/link";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -22,6 +23,11 @@ type ConnectedAccount = {
   profilePictureUrl: string | null;
   accountType: string;
   status: string;
+  reconnectRequired: boolean;
+  lastRefreshAttemptAt: number | null;
+  lastTokenRefreshAt: number | null;
+  nextRefreshAt: number | null;
+  refreshFailureCount: number;
   scopes: string[];
   tokenExpiresAt: number | null;
   webhookSubscriptionStatus: string;
@@ -203,6 +209,7 @@ function ConnectedState({
 }) {
   const refreshProfile = useAction(api.meta.oauth.refreshProfilePicture);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const connectionState = getConnectionState(account);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -219,12 +226,14 @@ function ConnectedState({
     <>
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="p-5 flex items-center gap-4">
-          <div className="size-12 rounded-full bg-muted flex items-center justify-center text-lg font-semibold text-foreground shrink-0 overflow-hidden">
+          <div className="relative size-12 rounded-full bg-muted flex items-center justify-center text-lg font-semibold text-foreground shrink-0 overflow-hidden">
             {account.profilePictureUrl ? (
-              <img
+              <Image
                 src={account.profilePictureUrl}
                 alt={account.username ?? "Instagram"}
-                className="size-12 rounded-full object-cover"
+                fill
+                sizes="48px"
+                className="object-cover"
               />
             ) : (
               (account.username?.[0] ?? "I").toUpperCase()
@@ -235,11 +244,17 @@ function ConnectedState({
               <p className="text-sm font-semibold text-foreground truncate">
                 @{account.username ?? account.instagramAccountId}
               </p>
-              <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-2 py-0.5">
+              <span
+                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
+                  connectionState.tone === "warning"
+                    ? "border-amber-200 bg-amber-50 text-amber-900"
+                    : connectionState.tone === "error"
+                      ? "border-rose-200 bg-rose-50 text-rose-900"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-700"
+                }`}
+              >
                 <CheckCircle2 className="size-3" />
-                {account.webhookSubscriptionStatus === "active"
-                  ? "Connected"
-                  : "Needs attention"}
+                {connectionState.label}
               </span>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -271,13 +286,29 @@ function ConnectedState({
           </div>
         </div>
 
-        <div className="border-t border-border px-5 py-4 grid grid-cols-3 gap-4">
+        <div className="border-t border-border px-5 py-4 grid grid-cols-2 gap-4 md:grid-cols-5">
           <div>
             <p className="text-xs text-muted-foreground">Token expires</p>
             <p className="text-sm font-medium text-foreground mt-0.5">
               {account.tokenExpiresAt
-                ? formatDate(account.tokenExpiresAt)
+                ? formatDateTime(account.tokenExpiresAt)
                 : "Unknown"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Last refresh</p>
+            <p className="text-sm font-medium text-foreground mt-0.5">
+              {account.lastTokenRefreshAt
+                ? formatDateTime(account.lastTokenRefreshAt)
+                : "Unknown"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Next refresh</p>
+            <p className="text-sm font-medium text-foreground mt-0.5">
+              {account.nextRefreshAt
+                ? formatDateTime(account.nextRefreshAt)
+                : "Not scheduled"}
             </p>
           </div>
           <div>
@@ -290,12 +321,26 @@ function ConnectedState({
             <p className="text-xs text-muted-foreground">Last webhook</p>
             <p className="text-sm font-medium text-foreground mt-0.5">
               {account.lastWebhookAt
-                ? formatDate(account.lastWebhookAt)
+                ? formatDateTime(account.lastWebhookAt)
                 : "Waiting"}
             </p>
           </div>
         </div>
       </div>
+
+      {connectionState.label === "Reconnect required" ? (
+        <StatusBanner
+          tone="error"
+          message="Inbound webhooks are still stored, but outbound automations are paused until this Instagram account is reconnected."
+        />
+      ) : null}
+
+      {connectionState.label === "Refresh retrying" ? (
+        <StatusBanner
+          tone="warning"
+          message="Instagram token refresh is retrying in the background. Outbound sending is still active while the current long-lived token remains usable."
+        />
+      ) : null}
 
       {account.lastWebhookAt === null ? (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 flex gap-3.5">
@@ -395,6 +440,37 @@ function formatDate(timestamp: number) {
   }).format(new Date(timestamp));
 }
 
+function formatDateTime(timestamp: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+}
+
 function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1).replace("_", " ");
+}
+
+function getConnectionState(account: ConnectedAccount) {
+  if (account.reconnectRequired || account.status === "connection_error") {
+    return {
+      label: "Reconnect required",
+      tone: "error" as const,
+    };
+  }
+
+  if (account.refreshFailureCount > 0) {
+    return {
+      label: "Refresh retrying",
+      tone: "warning" as const,
+    };
+  }
+
+  return {
+    label: "Connected",
+    tone: "success" as const,
+  };
 }
