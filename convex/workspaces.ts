@@ -1,5 +1,9 @@
 import { mutation, query } from "./_generated/server";
-import { getCurrentWorkspace, requireCurrentUserId } from "./lib/auth";
+import {
+  getCurrentWorkspace,
+  getWorkspaceUserPreference,
+  requireCurrentUserId,
+} from "./lib/auth";
 
 const DEFAULT_TAGS = [
   { label: "new", color: "slate" },
@@ -26,6 +30,19 @@ export const ensureCurrentWorkspace = mutation({
     const userId = await requireCurrentUserId(ctx);
     const existingWorkspace = await getCurrentWorkspace(ctx);
     if (existingWorkspace !== null) {
+      const existingPreference = await getWorkspaceUserPreference(
+        ctx,
+        existingWorkspace._id,
+        userId,
+      );
+      if (existingPreference === null) {
+        await ctx.db.insert("workspaceUserPreferences", {
+          workspaceId: existingWorkspace._id,
+          userId,
+          selectedInstagramAccountId: null,
+        });
+      }
+
       return { workspaceId: existingWorkspace._id, created: false };
     }
 
@@ -38,6 +55,12 @@ export const ensureCurrentWorkspace = mutation({
       ownerUserId: userId,
       name: displayName,
       timezone: "UTC",
+    });
+
+    await ctx.db.insert("workspaceUserPreferences", {
+      workspaceId,
+      userId,
+      selectedInstagramAccountId: null,
     });
 
     for (const tag of DEFAULT_TAGS) {
