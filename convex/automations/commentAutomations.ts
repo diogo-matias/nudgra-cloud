@@ -5,6 +5,7 @@ import {
   requireConnectedInstagramAccount,
   requireCurrentUserId,
   requireCurrentWorkspace,
+  requireWorkspaceInstagramAccount,
 } from "../lib/auth";
 import {
   getCommentAutomationValidationIssues,
@@ -201,12 +202,15 @@ function ensureSupportedConfiguration(args: {
 const DEFAULT_LINK_BUTTON_TEXT = "Open link";
 
 export const listCommentAutomations = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
     const automations = await ctx.db
       .query("commentAutomations")
-      .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspace._id))
+      .withIndex("by_instagram_account_id", (q) =>
+        q.eq("instagramAccountId", args.accountId),
+      )
       .take(50);
 
     return automations.map((automation) => serializeCommentAutomation(automation));
@@ -214,11 +218,19 @@ export const listCommentAutomations = query({
 });
 
 export const getCommentAutomationById = query({
-  args: { automationId: v.id("commentAutomations") },
+  args: {
+    accountId: v.id("instagramAccounts"),
+    automationId: v.id("commentAutomations"),
+  },
   handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
     const automation = await ctx.db.get(args.automationId);
-    if (automation === null || automation.workspaceId !== workspace._id) {
+    if (
+      automation === null ||
+      automation.workspaceId !== workspace._id ||
+      automation.instagramAccountId !== args.accountId
+    ) {
       return null;
     }
 
@@ -239,6 +251,7 @@ export const getCommentAutomationById = query({
 
 export const createCommentAutomation = mutation({
   args: {
+    accountId: v.id("instagramAccounts"),
     name: v.string(),
     postScope: v.union(
       v.literal("specific"),
@@ -268,7 +281,11 @@ export const createCommentAutomation = mutation({
   },
   handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
-    const account = await requireConnectedInstagramAccount(ctx, workspace._id);
+    const account = await requireConnectedInstagramAccount(
+      ctx,
+      workspace._id,
+      args.accountId,
+    );
     const userId = await requireCurrentUserId(ctx);
 
     if (!args.name.trim()) {
@@ -363,6 +380,7 @@ export const createCommentAutomation = mutation({
 
 export const updateCommentAutomation = mutation({
   args: {
+    accountId: v.id("instagramAccounts"),
     automationId: v.id("commentAutomations"),
     name: v.string(),
     postScope: v.union(
@@ -392,8 +410,13 @@ export const updateCommentAutomation = mutation({
   },
   handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
     const automation = await ctx.db.get(args.automationId);
-    if (automation === null || automation.workspaceId !== workspace._id) {
+    if (
+      automation === null ||
+      automation.workspaceId !== workspace._id ||
+      automation.instagramAccountId !== args.accountId
+    ) {
       throw new Error("Automation not found.");
     }
 
@@ -490,13 +513,19 @@ export const updateCommentAutomation = mutation({
 
 export const toggleCommentAutomation = mutation({
   args: {
+    accountId: v.id("instagramAccounts"),
     automationId: v.id("commentAutomations"),
     status: v.union(v.literal("live"), v.literal("paused")),
   },
   handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
     const automation = await ctx.db.get(args.automationId);
-    if (automation === null || automation.workspaceId !== workspace._id) {
+    if (
+      automation === null ||
+      automation.workspaceId !== workspace._id ||
+      automation.instagramAccountId !== args.accountId
+    ) {
       throw new Error("Automation not found.");
     }
 

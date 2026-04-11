@@ -1,7 +1,10 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
-import { requireCurrentWorkspace } from "./lib/auth";
+import {
+  requireCurrentWorkspace,
+  requireWorkspaceInstagramAccount,
+} from "./lib/auth";
 import {
   loadContactMemberships,
   loadContactTags,
@@ -339,17 +342,19 @@ function describeConversationMessage(
 
 export const listInbox = query({
   args: {
+    accountId: v.id("instagramAccounts"),
     unreadOnly: v.boolean(),
     statusFilter: inboxStatusFilterValidator,
     search: v.string(),
   },
   handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
     const maps = await loadWorkspaceAutomationMaps(ctx, workspace._id);
     const conversations = await ctx.db
       .query("conversations")
-      .withIndex("by_workspace_id_and_last_message_at", (q) =>
-        q.eq("workspaceId", workspace._id),
+      .withIndex("by_instagram_account_id_and_last_message_at", (q) =>
+        q.eq("instagramAccountId", args.accountId),
       )
       .order("desc")
       .take(100);
@@ -407,11 +412,19 @@ export const listInbox = query({
 });
 
 export const getConversationDetail = query({
-  args: { conversationId: v.id("conversations") },
+  args: {
+    accountId: v.id("instagramAccounts"),
+    conversationId: v.id("conversations"),
+  },
   handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
     const conversation = await ctx.db.get(args.conversationId);
-    if (conversation === null || conversation.workspaceId !== workspace._id) {
+    if (
+      conversation === null ||
+      conversation.workspaceId !== workspace._id ||
+      conversation.instagramAccountId !== args.accountId
+    ) {
       return null;
     }
 

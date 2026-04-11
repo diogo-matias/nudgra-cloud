@@ -9,18 +9,20 @@ import { internal } from "../_generated/api";
 import {
   requireCurrentWorkspace,
   requireConnectedInstagramAccount,
+  requireWorkspaceInstagramAccount,
 } from "../lib/auth";
 
 // ── Query: get cached media for the post picker ──────────────────
 
 export const listCachedMedia = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
-    const account = await ctx.db
-      .query("instagramAccounts")
-      .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspace._id))
-      .unique();
+    const account = await requireWorkspaceInstagramAccount(
+      ctx,
+      workspace._id,
+      args.accountId,
+    );
 
     if (!account) {
       return [];
@@ -56,10 +58,11 @@ export const listCachedMedia = query({
 // ── Action: refresh media from Instagram ─────────────────────────
 
 export const refreshMedia = action({
-  args: {},
-  handler: async (ctx) => {
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
     const context = await ctx.runQuery(
       internal.meta.mediaQueries.getRefreshContext,
+      { accountId: args.accountId },
     );
 
     if (!context) {
@@ -77,10 +80,14 @@ export const refreshMedia = action({
 // ── Internal query for refresh context ───────────────────────────
 
 export const getRefreshContext = internalQuery({
-  args: {},
-  handler: async (ctx) => {
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
-    const account = await requireConnectedInstagramAccount(ctx, workspace._id);
+    const account = await requireConnectedInstagramAccount(
+      ctx,
+      workspace._id,
+      args.accountId,
+    );
 
     if (!account.graphAccessToken) {
       return null;

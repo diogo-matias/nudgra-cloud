@@ -2,8 +2,10 @@ import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc } from "./_generated/dataModel";
 import {
-  getWorkspaceInstagramAccount,
+  getSelectedWorkspaceInstagramAccount,
+  listWorkspaceInstagramAccounts,
   requireCurrentWorkspace,
+  requireWorkspaceInstagramAccount,
 } from "./lib/auth";
 
 function buildActivityLabel(args: {
@@ -42,25 +44,31 @@ export const getOverview = query({
   args: {},
   handler: async (ctx) => {
     const workspace = await requireCurrentWorkspace(ctx);
-    const account = await getWorkspaceInstagramAccount(ctx, workspace._id);
-    const rules = await ctx.db
-      .query("automationRules")
-      .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspace._id))
-      .take(100);
-    const contacts = await ctx.db
-      .query("contacts")
-      .withIndex("by_workspace_id_and_last_message_at", (q) =>
-        q.eq("workspaceId", workspace._id),
-      )
-      .order("desc")
-      .take(100);
-    const conversations = await ctx.db
-      .query("conversations")
-      .withIndex("by_workspace_id_and_last_message_at", (q) =>
-        q.eq("workspaceId", workspace._id),
-      )
-      .order("desc")
-      .take(100);
+    const [selectedAccount, accounts, rules, contacts, conversations] =
+      await Promise.all([
+        getSelectedWorkspaceInstagramAccount(ctx, workspace._id),
+        listWorkspaceInstagramAccounts(ctx, workspace._id),
+        ctx.db
+          .query("automationRules")
+          .withIndex("by_workspace_id", (q) =>
+            q.eq("workspaceId", workspace._id),
+          )
+          .take(100),
+        ctx.db
+          .query("contacts")
+          .withIndex("by_workspace_id_and_last_message_at", (q) =>
+            q.eq("workspaceId", workspace._id),
+          )
+          .order("desc")
+          .take(100),
+        ctx.db
+          .query("conversations")
+          .withIndex("by_workspace_id_and_last_message_at", (q) =>
+            q.eq("workspaceId", workspace._id),
+          )
+          .order("desc")
+          .take(100),
+      ]);
     const recentDeliveries = await ctx.db
       .query("deliveryAttempts")
       .withIndex("by_workspace_id_and_event_time", (q) =>
@@ -117,7 +125,39 @@ export const getOverview = query({
     recentActivity.sort((a, b) => b.time - a.time);
 
     return {
-      account,
+      selectedAccount:
+        selectedAccount === null
+          ? null
+          : {
+              id: selectedAccount._id,
+              instagramAccountId: selectedAccount.instagramAccountId,
+              username: selectedAccount.username,
+              name: selectedAccount.name,
+              profilePictureUrl: selectedAccount.profilePictureUrl ?? null,
+              status: selectedAccount.status,
+              reconnectRequired: selectedAccount.reconnectRequired ?? false,
+            },
+      accounts: accounts.map((account) => ({
+        id: account._id,
+        instagramAccountId: account.instagramAccountId,
+        username: account.username,
+        name: account.name,
+        profilePictureUrl: account.profilePictureUrl ?? null,
+        status: account.status,
+        reconnectRequired: account.reconnectRequired ?? false,
+        lastWebhookAt: account.lastWebhookAt,
+        lastError: account.lastError,
+        activeRules: rules.filter(
+          (rule) =>
+            rule.instagramAccountId === account._id && rule.isActive,
+        ).length,
+        contacts: contacts.filter(
+          (contact) => contact.instagramAccountId === account._id,
+        ).length,
+        conversations: conversations.filter(
+          (conversation) => conversation.instagramAccountId === account._id,
+        ).length,
+      })),
       stats: {
         activeRules: rules.filter((rule) => rule.isActive).length,
         contacts: contacts.length,
@@ -216,32 +256,35 @@ export const listConversations = query({
 });
 
 export const listLogs = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
     const deliveries = await ctx.db
       .query("deliveryAttempts")
-      .withIndex("by_workspace_id_and_event_time", (q) =>
-        q.eq("workspaceId", workspace._id),
+      .withIndex("by_instagram_account_id_and_event_time", (q) =>
+        q.eq("instagramAccountId", args.accountId),
       )
       .order("desc")
       .take(50);
     const webhooks = await ctx.db
       .query("webhookEvents")
-      .withIndex("by_workspace_id_and_received_at", (q) =>
-        q.eq("workspaceId", workspace._id),
+      .withIndex("by_instagram_account_id_and_received_at", (q) =>
+        q.eq("instagramAccountId", args.accountId),
       )
       .order("desc")
       .take(50);
     const webhookReceipts = await ctx.db
       .query("webhookReceipts")
-      .withIndex("by_received_at")
+      .withIndex("by_instagram_account_id_and_received_at", (q) =>
+        q.eq("instagramAccountId", args.accountId),
+      )
       .order("desc")
       .take(50);
     const commentSessions = await ctx.db
       .query("commentAutomationSessions")
-      .withIndex("by_workspace_id_and_last_step_at", (q) =>
-        q.eq("workspaceId", workspace._id),
+      .withIndex("by_instagram_account_id_and_last_step_at", (q) =>
+        q.eq("instagramAccountId", args.accountId),
       )
       .order("desc")
       .take(50);

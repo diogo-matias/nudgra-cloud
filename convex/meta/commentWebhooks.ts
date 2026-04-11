@@ -182,8 +182,8 @@ export const processCommentWebhookItem = internalMutation({
 
     const automations = await ctx.db
       .query("commentAutomations")
-      .withIndex("by_workspace_id_and_status", (q) =>
-        q.eq("workspaceId", account.workspaceId).eq("status", "live"),
+      .withIndex("by_instagram_account_id_and_status", (q) =>
+        q.eq("instagramAccountId", account._id).eq("status", "live"),
       )
       .take(50);
 

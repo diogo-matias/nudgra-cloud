@@ -182,11 +182,11 @@ async function subscribeInstagramAccount(args: {
 }
 
 export const refreshProfilePicture = action({
-  args: {},
-  handler: async (ctx) => {
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
     let account = await ctx.runQuery(
-      internal.accounts.getConnectedAccountWithToken,
-      {},
+      internal.accounts.getOwnedAccountWithToken,
+      { accountId: args.accountId },
     );
     if (account === null || !account.graphAccessToken) {
       throw new Error("No connected Instagram account with a valid token.");
@@ -222,8 +222,8 @@ export const refreshProfilePicture = action({
       }
 
       account = await ctx.runQuery(
-        internal.accounts.getConnectedAccountWithToken,
-        {},
+        internal.accounts.getOwnedAccountWithToken,
+        { accountId: args.accountId },
       );
       if (account === null || !account.graphAccessToken) {
         throw new Error(parsedError.message);

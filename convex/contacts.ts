@@ -8,7 +8,10 @@ import {
 import { v } from "convex/values";
 import { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
-import { requireCurrentWorkspace } from "./lib/auth";
+import {
+  requireCurrentWorkspace,
+  requireWorkspaceInstagramAccount,
+} from "./lib/auth";
 import {
   loadContactMemberships,
   loadContactMessageCount,
@@ -91,12 +94,30 @@ async function loadContactListItem(
 }
 
 export const listAutomationFilters = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
-    const maps = await loadWorkspaceAutomationMaps(ctx, workspace._id);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
+    const [rules, commentAutomations, sequences] = await Promise.all([
+      ctx.db
+        .query("automationRules")
+        .withIndex("by_instagram_account_id", (q) =>
+          q.eq("instagramAccountId", args.accountId),
+        )
+        .take(100),
+      ctx.db
+        .query("commentAutomations")
+        .withIndex("by_instagram_account_id", (q) =>
+          q.eq("instagramAccountId", args.accountId),
+        )
+        .take(100),
+      ctx.db
+        .query("sequenceDefinitions")
+        .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspace._id))
+        .take(25),
+    ]);
 
-    const rules = [...maps.rulesById.values()]
+    const serializedRules = [...rules]
       .map((rule) => ({
         id: rule._id,
         label: rule.name,
@@ -104,7 +125,7 @@ export const listAutomationFilters = query({
         status: rule.isActive ? "active" : "paused",
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
-    const commentAutomations = [...maps.commentAutomationsById.values()]
+    const serializedCommentAutomations = [...commentAutomations]
       .map((automation) => ({
         id: automation._id,
         label: automation.name,
@@ -112,7 +133,7 @@ export const listAutomationFilters = query({
         status: automation.status,
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
-    const sequences = [...maps.sequencesById.values()]
+    const serializedSequences = [...sequences]
       .map((sequence) => ({
         id: sequence._id,
         label: sequence.name,
@@ -122,26 +143,28 @@ export const listAutomationFilters = query({
       .sort((a, b) => a.label.localeCompare(b.label));
 
     return {
-      rules,
-      commentAutomations,
-      sequences,
+      rules: serializedRules,
+      commentAutomations: serializedCommentAutomations,
+      sequences: serializedSequences,
     };
   },
 });
 
 export const listContacts = query({
   args: {
+    accountId: v.id("instagramAccounts"),
     automationFilter: automationFilterValidator,
   },
   handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
 
     let contacts;
     if (args.automationFilter === null) {
       contacts = await ctx.db
         .query("contacts")
-        .withIndex("by_workspace_id_and_last_message_at", (q) =>
-          q.eq("workspaceId", workspace._id),
+        .withIndex("by_instagram_account_id_and_last_message_at", (q) =>
+          q.eq("instagramAccountId", args.accountId),
         )
         .order("desc")
         .take(100);
@@ -179,7 +202,9 @@ export const listContacts = query({
       )
         .filter(
           (contact): contact is NonNullable<typeof contact> =>
-            contact !== null && contact.workspaceId === workspace._id,
+            contact !== null &&
+            contact.workspaceId === workspace._id &&
+            contact.instagramAccountId === args.accountId,
         )
         .sort((a, b) => b.lastMessageAt - a.lastMessageAt)
         .slice(0, 100);
@@ -192,11 +217,19 @@ export const listContacts = query({
 });
 
 export const getContactDetail = query({
-  args: { contactId: v.id("contacts") },
+  args: {
+    accountId: v.id("instagramAccounts"),
+    contactId: v.id("contacts"),
+  },
   handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
     const contact = await ctx.db.get(args.contactId);
-    if (contact === null || contact.workspaceId !== workspace._id) {
+    if (
+      contact === null ||
+      contact.workspaceId !== workspace._id ||
+      contact.instagramAccountId !== args.accountId
+    ) {
       return null;
     }
 
@@ -248,12 +281,20 @@ export const getContactDetail = query({
 });
 
 export const requestContactProfileRefresh = mutation({
-  args: { contactId: v.id("contacts") },
+  args: {
+    accountId: v.id("instagramAccounts"),
+    contactId: v.id("contacts"),
+  },
   handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
     const contact = await ctx.db.get(args.contactId);
 
-    if (contact === null || contact.workspaceId !== workspace._id) {
+    if (
+      contact === null ||
+      contact.workspaceId !== workspace._id ||
+      contact.instagramAccountId !== args.accountId
+    ) {
       return false;
     }
 

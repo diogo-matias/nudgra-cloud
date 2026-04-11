@@ -529,8 +529,8 @@ export const ingestWebhookPayload = internalMutation({
 
       const activeRules = await ctx.db
         .query("automationRules")
-        .withIndex("by_workspace_id_and_is_active", (q) =>
-          q.eq("workspaceId", account.workspaceId).eq("isActive", true),
+        .withIndex("by_instagram_account_id_and_is_active", (q) =>
+          q.eq("instagramAccountId", account._id).eq("isActive", true),
         )
         .take(50);
 
