@@ -270,7 +270,10 @@ describe("meta token lifecycle", () => {
       {},
     );
 
-    expect(disconnectResult).toEqual({ disconnected: true });
+    expect(disconnectResult).toEqual({
+      disconnected: true,
+      selectedAccountId: null,
+    });
 
     const account = await t.run((ctx) =>
       ctx.db.get(fixture.instagramAccountId),

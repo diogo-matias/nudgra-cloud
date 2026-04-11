@@ -431,6 +431,7 @@ describe("contacts and inbox read models", () => {
     });
 
     const filteredContacts = await authT.query(api.contacts.listContacts, {
+      accountId: fixture.instagramAccountId,
       automationFilter: {
         kind: "rule",
         automationRuleId: ruleId,
@@ -440,6 +441,7 @@ describe("contacts and inbox read models", () => {
     expect(filteredContacts[0]?.id).toBe(first.contactId);
 
     const detail = await authT.query(api.contacts.getContactDetail, {
+      accountId: fixture.instagramAccountId,
       contactId: first.contactId,
     });
     expect(detail?.automations[0]?.firstMatchedAt).toBe(BASE_TIME);
@@ -509,6 +511,7 @@ describe("contacts and inbox read models", () => {
     });
 
     const inbox = await authT.query(api.inbox.listInbox, {
+      accountId: fixture.instagramAccountId,
       unreadOnly: false,
       statusFilter: "all",
       search: "",
@@ -574,6 +577,7 @@ describe("contacts and inbox read models", () => {
     });
 
     const detail = await authT.query(api.inbox.getConversationDetail, {
+      accountId: fixture.instagramAccountId,
       conversationId,
     });
 
@@ -640,6 +644,7 @@ describe("contacts and inbox read models", () => {
     });
 
     const detail = await authT.query(api.inbox.getConversationDetail, {
+      accountId: fixture.instagramAccountId,
       conversationId,
     });
 
@@ -702,6 +707,7 @@ describe("contacts and inbox read models", () => {
     });
 
     const detail = await authT.query(api.inbox.getConversationDetail, {
+      accountId: fixture.instagramAccountId,
       conversationId,
     });
 
@@ -738,6 +744,7 @@ describe("contacts and inbox read models", () => {
     });
 
     const detail = await authT.query(api.inbox.getConversationDetail, {
+      accountId: fixture.instagramAccountId,
       conversationId,
     });
 
@@ -835,6 +842,7 @@ describe("contacts and inbox read models", () => {
     );
 
     const detail = await authT.query(api.inbox.getConversationDetail, {
+      accountId: fixture.instagramAccountId,
       conversationId,
     });
 
@@ -998,6 +1006,7 @@ describe("contacts and inbox read models", () => {
     });
 
     const detail = await authT.query(api.inbox.getConversationDetail, {
+      accountId: fixture.instagramAccountId,
       conversationId,
     });
 
