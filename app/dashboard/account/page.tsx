@@ -1,413 +1,401 @@
 "use client";
 
-import Image from "next/image";
 import { useState } from "react";
 import Link from "next/link";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useSearchParams } from "next/navigation";
 import {
-  AtSign,
-  CheckCircle2,
-  Shield,
-  RefreshCw,
-  ExternalLink,
+  AlertCircle,
   AlertTriangle,
+  CheckCircle2,
+  Plus,
+  RefreshCw,
+  Search,
+  Unplug,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { cn } from "@/lib/utils";
+import {
+  AccountAvatar,
+  getAccountPrimaryLabel,
+} from "@/components/dashboard/account-avatar";
 
-type ConnectedAccount = {
-  id: string;
-  instagramAccountId: string;
-  username: string | null;
-  name: string | null;
-  profilePictureUrl: string | null;
-  accountType: string;
-  status: string;
-  reconnectRequired: boolean;
-  lastRefreshAttemptAt: number | null;
-  lastTokenRefreshAt: number | null;
-  nextRefreshAt: number | null;
-  refreshFailureCount: number;
-  scopes: string[];
-  tokenExpiresAt: number | null;
-  webhookSubscriptionStatus: string;
-  lastWebhookAt: number | null;
-  lastError: string | null;
-  connectedAt: number | null;
-  disconnectedAt: number | null;
-};
+function formatDateTime(timestamp: number | null) {
+  if (timestamp === null) {
+    return "—";
+  }
 
-const REQUIRED_SCOPES = [
-  {
-    label: "instagram_business_basic",
-    description: "Read account profile and media",
-  },
-  {
-    label: "instagram_business_manage_messages",
-    description: "Send and receive DMs",
-  },
-  {
-    label: "instagram_business_manage_comments",
-    description: "Manage comments on posts",
-  },
-];
-
-const META_WEBHOOK_DOCS_URL =
-  "https://developers.facebook.com/docs/instagram-platform/instagram-api-with-instagram-login/webhooks";
-const CONVEX_WEBHOOK_CALLBACK_URL = process.env.NEXT_PUBLIC_CONVEX_SITE_URL
-  ? `${process.env.NEXT_PUBLIC_CONVEX_SITE_URL}/meta/webhooks`
-  : null;
-
-export default function AccountPage() {
-  const data = useQuery(api.accounts.getCurrentAccountStatus);
-  const disconnectAccount = useMutation(api.accounts.disconnectCurrentAccount);
-  const searchParams = useSearchParams();
-
-  return (
-    <main className="flex-1 px-8 py-10">
-      <div className="max-w-2xl w-full flex flex-col gap-8">
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Account</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Connect your Instagram professional account to enable automation.
-          </p>
-        </div>
-
-        {searchParams.get("error") ? (
-          <StatusBanner
-            tone="error"
-            message={decodeURIComponent(searchParams.get("error") ?? "")}
-          />
-        ) : null}
-
-        {searchParams.get("warning") ? (
-          <StatusBanner
-            tone="warning"
-            message={decodeURIComponent(searchParams.get("warning") ?? "")}
-          />
-        ) : null}
-
-        {searchParams.get("connected") ? (
-          <StatusBanner
-            tone="success"
-            message="Instagram account connected successfully."
-          />
-        ) : null}
-
-        {data?.account ? (
-          <ConnectedState
-            account={data.account}
-            onDisconnect={() => void disconnectAccount({})}
-          />
-        ) : (
-          <NotConnectedState
-            isMetaConfigured={Boolean(data?.isMetaConfigured)}
-          />
-        )}
-      </div>
-    </main>
-  );
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
 }
 
-function NotConnectedState({
-  isMetaConfigured,
-}: {
-  isMetaConfigured: boolean;
+function getConnectionState(args: {
+  status: string;
+  reconnectRequired: boolean;
 }) {
+  if (args.status === "disconnected") {
+    return {
+      label: "Disconnected",
+      classes: "border-border bg-muted text-muted-foreground",
+    };
+  }
+
+  if (args.reconnectRequired || args.status === "connection_error") {
+    return {
+      label: "Reconnect required",
+      classes: "border-amber-200 bg-amber-50 text-amber-900",
+    };
+  }
+
+  return {
+    label: "Connected",
+    classes: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
+}
+
+export default function AccountPage() {
+  const searchParams = useSearchParams();
+  const [search, setSearch] = useState("");
+  const [refreshingIds, setRefreshingIds] = useState<Record<string, boolean>>({});
+  const context = useQuery(api.accounts.getSelectedAccountContext);
+  const list = useQuery(api.accounts.listWorkspaceAccounts, { search });
+  const selectAccount = useMutation(api.accounts.selectAccount);
+  const disconnectAccount = useMutation(api.accounts.disconnectAccount);
+  const refreshAccountProfile = useAction(api.accounts.refreshAccountProfile);
+
+  const selectedAccount = context?.selectedAccount ?? null;
+  const accounts = list?.accounts ?? [];
+  const totalAccounts = context?.totalAccounts ?? 0;
+  const connectedAccounts = context?.connectedAccounts ?? 0;
+
+  const banners = [
+    searchParams.get("error")
+      ? {
+          tone: "error" as const,
+          message: decodeURIComponent(searchParams.get("error") ?? ""),
+        }
+      : null,
+    searchParams.get("warning")
+      ? {
+          tone: "warning" as const,
+          message: decodeURIComponent(searchParams.get("warning") ?? ""),
+        }
+      : null,
+    searchParams.get("connected")
+      ? {
+          tone: "success" as const,
+          message: "Instagram account connected and set as active.",
+        }
+      : null,
+  ].filter((banner): banner is { tone: "success" | "warning" | "error"; message: string } => banner !== null);
+
   return (
-    <>
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="p-6 flex flex-col items-center text-center gap-5">
-          <div className="size-14 rounded-full bg-muted flex items-center justify-center">
-            <AtSign className="size-6 text-muted-foreground" />
-          </div>
-          <div className="flex flex-col gap-1">
-            <h2 className="text-base font-semibold text-foreground">
-              No account connected
-            </h2>
-            <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
-              Connect your Instagram professional account to start receiving
-              webhooks and running automation rules.
+    <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <div className="mx-auto w-full max-w-7xl space-y-6">
+        {/* Header */}
+        <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+              Manage Accounts
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Connect Instagram accounts and set the active workspace scope.
             </p>
           </div>
           <Link
-            href={isMetaConfigured ? "/api/meta/connect" : "/dashboard/account"}
-            className={`inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium transition-opacity ${
-              isMetaConfigured
-                ? "bg-primary text-primary-foreground hover:opacity-90"
-                : "bg-primary/50 text-primary-foreground pointer-events-none cursor-not-allowed"
-            }`}
+            href="/api/meta/connect"
+            className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition hover:opacity-90"
           >
-            <AtSign className="size-4" />
-            Connect with Instagram
+            <Plus className="size-4" />
+            Add account
           </Link>
-          <p className="text-xs text-muted-foreground">
-            {isMetaConfigured
-              ? "Instagram Login for one professional account."
-              : "Set META_APP_ID, META_APP_SECRET, and META_VERIFY_TOKEN first."}
-          </p>
-        </div>
+        </header>
 
-        <div className="border-t border-border bg-muted/40 px-6 py-4">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
-            Required permissions
-          </p>
-          <div className="flex flex-col gap-2">
-            {REQUIRED_SCOPES.map((scope) => (
-              <div key={scope.label} className="flex items-start gap-2.5">
-                <CheckCircle2 className="size-3.5 text-primary shrink-0 mt-0.5" />
-                <div className="min-w-0">
-                  <code className="text-xs font-mono text-foreground">
-                    {scope.label}
-                  </code>
-                  <p className="text-xs text-muted-foreground">
-                    {scope.description}
+        {/* Banners */}
+        {banners.map((banner) => (
+          <StatusBanner
+            key={`${banner.tone}:${banner.message}`}
+            tone={banner.tone}
+            message={banner.message}
+          />
+        ))}
+
+        {/* Content */}
+        <div className="grid gap-4 xl:grid-cols-[1fr_300px]">
+          {/* Account list */}
+          <div className="rounded-[24px] border border-border bg-card p-5 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">{connectedAccounts}</span> of{" "}
+                <span className="font-medium text-foreground">{totalAccounts}</span>{" "}
+                account{totalAccounts === 1 ? "" : "s"} connected
+              </p>
+              <label className="relative block w-full sm:w-56">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search accounts"
+                  className="h-9 w-full rounded-xl border border-input bg-background pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/20"
+                />
+              </label>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {accounts.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
+                  <p className="text-sm font-medium text-foreground">
+                    No accounts found
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Connect your first Instagram professional account to get started.
+                  </p>
+                </div>
+              ) : (
+                accounts.map((account) => {
+                  const state = getConnectionState({
+                    status: account.status,
+                    reconnectRequired: account.reconnectRequired,
+                  });
+                  const isRefreshing = Boolean(refreshingIds[account.id]);
+                  const isDisconnected = account.status === "disconnected";
+
+                  return (
+                    <article
+                      key={account.id}
+                      className={cn(
+                        "rounded-2xl border p-4 transition",
+                        account.isSelected
+                          ? "border-primary/20 bg-primary/[0.04]"
+                          : "border-border bg-background",
+                      )}
+                    >
+                      {/* Top row: avatar + info */}
+                      <div className="flex items-start gap-3">
+                        <AccountAvatar
+                          username={account.username}
+                          name={account.name}
+                          profilePictureUrl={account.profilePictureUrl}
+                          size="md"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h2 className="truncate text-sm font-semibold text-foreground">
+                              {getAccountPrimaryLabel({
+                                username: account.username,
+                                name: account.name,
+                                instagramAccountId: account.instagramAccountId,
+                              })}
+                            </h2>
+                            <span
+                              className={cn(
+                                "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                                state.classes,
+                              )}
+                            >
+                              {state.label}
+                            </span>
+                            {account.isSelected ? (
+                              <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                                Active scope
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {account.username
+                              ? `@${account.username}`
+                              : account.instagramAccountId}
+                          </p>
+                          {/* Metadata */}
+                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                            <span>Connected {formatDateTime(account.connectedAt)}</span>
+                            <span>Token {formatDateTime(account.nextRefreshAt)}</span>
+                            <span>Webhook {formatDateTime(account.lastWebhookAt)}</span>
+                          </div>
+                          {account.lastError ? (
+                            <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs leading-relaxed text-amber-900">
+                              {account.lastError}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {/* Action row */}
+                      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-border pt-3">
+                        <button
+                          type="button"
+                          disabled={account.isSelected || isDisconnected}
+                          onClick={() =>
+                            void selectAccount({ accountId: account.id })
+                          }
+                          className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          Set active
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isRefreshing || isDisconnected}
+                          onClick={() => {
+                            setRefreshingIds((current) => ({
+                              ...current,
+                              [account.id]: true,
+                            }));
+                            void refreshAccountProfile({
+                              accountId: account.id,
+                            }).finally(() => {
+                              setRefreshingIds((current) => ({
+                                ...current,
+                                [account.id]: false,
+                              }));
+                            });
+                          }}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <RefreshCw
+                            className={cn(
+                              "size-3.5",
+                              isRefreshing && "animate-spin",
+                            )}
+                          />
+                          Refresh
+                        </button>
+                        <Link
+                          href="/api/meta/connect"
+                          className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-foreground transition hover:bg-muted"
+                        >
+                          Reconnect
+                        </Link>
+                        <button
+                          type="button"
+                          disabled={isDisconnected}
+                          onClick={() =>
+                            void disconnectAccount({ accountId: account.id })
+                          }
+                          className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-destructive/30 px-3 py-1.5 text-xs font-medium text-destructive transition hover:bg-destructive/5 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Unplug className="size-3.5" />
+                          Disconnect
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Aside */}
+          <aside className="space-y-4">
+            {/* Active account summary */}
+            <div className="rounded-[24px] border border-border bg-card p-5 shadow-sm">
+              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Active account
+              </p>
+              {selectedAccount ? (
+                <div className="mt-4 flex items-start gap-3">
+                  <AccountAvatar
+                    username={selectedAccount.username}
+                    name={selectedAccount.name}
+                    profilePictureUrl={selectedAccount.profilePictureUrl}
+                    size="md"
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-foreground">
+                      {getAccountPrimaryLabel({
+                        username: selectedAccount.username,
+                        name: selectedAccount.name,
+                        instagramAccountId: selectedAccount.instagramAccountId,
+                      })}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedAccount.username
+                        ? `@${selectedAccount.username}`
+                        : selectedAccount.instagramAccountId}
+                    </p>
+                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                      Sets the workspace scope for automations, contacts,
+                      conversations, logs, and media.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                  No connected account is currently active.
+                </p>
+              )}
+            </div>
+
+            {/* Required permissions */}
+            <div className="rounded-[24px] border border-border bg-card p-5 shadow-sm">
+              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Required permissions
+              </p>
+              <div className="mt-3 space-y-2.5">
+                {[
+                  {
+                    scope: "instagram_business_basic",
+                    desc: "Read profile and media",
+                  },
+                  {
+                    scope: "instagram_business_manage_messages",
+                    desc: "Receive and send DMs",
+                  },
+                  {
+                    scope: "instagram_business_manage_comments",
+                    desc: "Comment automation triggers",
+                  },
+                ].map(({ scope, desc }) => (
+                  <div key={scope} className="flex items-start gap-2">
+                    <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                    <div>
+                      <p className="text-xs font-medium text-foreground">{scope}</p>
+                      <p className="text-[11px] text-muted-foreground">{desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Warning */}
+            <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-5">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
+                <div>
+                  <p className="text-xs font-semibold text-amber-950">
+                    Account isolation
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-amber-900">
+                    Rules, contacts, conversations, logs, and webhooks are
+                    scoped to the active account. Switching accounts changes the
+                    UI scope without mixing data.
                   </p>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-card border border-border rounded-xl p-5 flex gap-3.5">
-        <Shield className="size-4 text-muted-foreground shrink-0 mt-0.5" />
-        <div className="flex flex-col gap-1.5">
-          <p className="text-sm font-medium text-foreground">
-            Instagram professional account required
-          </p>
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            Your account must be a Creator or Business account. Personal
-            accounts are not supported by the Instagram API. You can upgrade in
-            the Instagram app under{" "}
-            <span className="font-medium text-foreground">
-              Settings → Account → Switch account type
-            </span>
-            .
-          </p>
-          <a
-            href="https://developers.facebook.com/docs/messenger-platform/instagram/get-started"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-primary hover:underline mt-1 w-fit"
-          >
-            Meta developer docs
-            <ExternalLink className="size-3" />
-          </a>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function ConnectedState({
-  account,
-  onDisconnect,
-}: {
-  account: ConnectedAccount;
-  onDisconnect: () => void;
-}) {
-  const refreshProfile = useAction(api.meta.oauth.refreshProfilePicture);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const connectionState = getConnectionState(account);
-
-  const handleRefresh = async () => {
-    setIsRefreshing(true);
-    try {
-      await refreshProfile({});
-    } catch {
-      // Silently fail — the UI will still show the fallback avatar
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-
-  return (
-    <>
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="p-5 flex items-center gap-4">
-          <div className="relative size-12 rounded-full bg-muted flex items-center justify-center text-lg font-semibold text-foreground shrink-0 overflow-hidden">
-            {account.profilePictureUrl ? (
-              <Image
-                src={account.profilePictureUrl}
-                alt={account.username ?? "Instagram"}
-                fill
-                sizes="48px"
-                className="object-cover"
-              />
-            ) : (
-              (account.username?.[0] ?? "I").toUpperCase()
-            )}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-semibold text-foreground truncate">
-                @{account.username ?? account.instagramAccountId}
-              </p>
-              <span
-                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
-                  connectionState.tone === "warning"
-                    ? "border-amber-200 bg-amber-50 text-amber-900"
-                    : connectionState.tone === "error"
-                      ? "border-rose-200 bg-rose-50 text-rose-900"
-                      : "border-emerald-200 bg-emerald-50 text-emerald-700"
-                }`}
-              >
-                <CheckCircle2 className="size-3" />
-                {connectionState.label}
-              </span>
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {capitalize(account.accountType)} account ·{" "}
-              {account.connectedAt
-                ? `Connected ${formatDate(account.connectedAt)}`
-                : "Connected"}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="text-sm font-medium text-muted-foreground hover:text-foreground border border-border rounded-lg px-3 py-1.5 hover:bg-muted transition-colors cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Refresh profile from Instagram"
-            >
-              <RefreshCw
-                className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`}
-              />
-              {isRefreshing ? "Refreshing" : "Refresh"}
-            </button>
-            <Link
-              href="/api/meta/connect"
-              className="text-sm font-medium text-muted-foreground hover:text-foreground border border-border rounded-lg px-3 py-1.5 hover:bg-muted transition-colors cursor-pointer flex items-center gap-1.5"
-            >
-              <RefreshCw className="size-3.5" />
-              Reconnect
-            </Link>
-          </div>
-        </div>
 
-        <div className="border-t border-border px-5 py-4 grid grid-cols-2 gap-4 md:grid-cols-5">
-          <div>
-            <p className="text-xs text-muted-foreground">Token expires</p>
-            <p className="text-sm font-medium text-foreground mt-0.5">
-              {account.tokenExpiresAt
-                ? formatDateTime(account.tokenExpiresAt)
-                : "Unknown"}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Last refresh</p>
-            <p className="text-sm font-medium text-foreground mt-0.5">
-              {account.lastTokenRefreshAt
-                ? formatDateTime(account.lastTokenRefreshAt)
-                : "Unknown"}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Next refresh</p>
-            <p className="text-sm font-medium text-foreground mt-0.5">
-              {account.nextRefreshAt
-                ? formatDateTime(account.nextRefreshAt)
-                : "Not scheduled"}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Webhook status</p>
-            <p className="text-sm font-medium text-foreground mt-0.5">
-              {capitalize(account.webhookSubscriptionStatus)}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Last webhook</p>
-            <p className="text-sm font-medium text-foreground mt-0.5">
-              {account.lastWebhookAt
-                ? formatDateTime(account.lastWebhookAt)
-                : "Waiting"}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {connectionState.label === "Reconnect required" ? (
-        <StatusBanner
-          tone="error"
-          message="Inbound webhooks are still stored, but outbound automations are paused until this Instagram account is reconnected."
-        />
-      ) : null}
-
-      {connectionState.label === "Refresh retrying" ? (
-        <StatusBanner
-          tone="warning"
-          message="Instagram token refresh is retrying in the background. Outbound sending is still active while the current long-lived token remains usable."
-        />
-      ) : null}
-
-      {account.lastWebhookAt === null ? (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 flex gap-3.5">
-          <AlertTriangle className="size-4 text-amber-700 shrink-0 mt-0.5" />
-          <div className="flex flex-col gap-2">
-            <p className="text-sm font-medium text-amber-950">
-              Waiting for the first Meta webhook
-            </p>
-            <p className="text-sm text-amber-900 leading-relaxed">
-              This account token is connected, but Nudgra has not received any
-              inbound webhook yet. Meta must send Instagram webhooks to the
-              Convex callback URL, the app must be subscribed to Instagram
-              webhooks, and Meta only sends webhook notifications while the app
-              is in Live mode.
-            </p>
-            {CONVEX_WEBHOOK_CALLBACK_URL ? (
-              <div className="rounded-lg border border-amber-200 bg-white/70 px-3 py-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-amber-700">
-                  Callback URL
-                </p>
-                <code className="mt-1 block text-xs text-foreground break-all">
-                  {CONVEX_WEBHOOK_CALLBACK_URL}
-                </code>
-                <p className="mt-1 text-xs text-amber-900/80">
-                  Use your <code>META_VERIFY_TOKEN</code> as the verify token in
-                  the Meta App Dashboard.
-                </p>
+            {/* Help */}
+            <div className="rounded-[24px] border border-border bg-card p-5 shadow-sm">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                <div>
+                  <p className="text-xs font-semibold text-foreground">
+                    Token errors?
+                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Use <strong>Reconnect</strong> to re-authorize via Instagram
+                    OAuth and restore webhook delivery.
+                  </p>
+                </div>
               </div>
-            ) : null}
-            <a
-              href={META_WEBHOOK_DOCS_URL}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-amber-900 hover:underline w-fit"
-            >
-              Meta webhook setup docs
-              <ExternalLink className="size-3" />
-            </a>
-          </div>
-        </div>
-      ) : null}
-
-      {account.lastError ? (
-        <StatusBanner tone="warning" message={account.lastError} />
-      ) : null}
-
-      <div className="bg-card border border-border rounded-xl p-5 flex gap-3.5">
-        <AlertTriangle className="size-4 text-destructive shrink-0 mt-0.5" />
-        <div className="flex-1 flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-foreground">
-              Disconnect account
-            </p>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Removes the token and stops all automation. Reconnect later to
-              resume.
-            </p>
-          </div>
-          <button
-            onClick={onDisconnect}
-            className="shrink-0 text-sm font-medium text-destructive border border-destructive/30 rounded-lg px-3 py-1.5 hover:bg-destructive/5 transition-colors cursor-pointer"
-          >
-            Disconnect
-          </button>
+            </div>
+          </aside>
         </div>
       </div>
-    </>
+    </main>
   );
 }
 
@@ -418,59 +406,16 @@ function StatusBanner({
   tone: "success" | "warning" | "error";
   message: string;
 }) {
-  const classes =
-    tone === "success"
-      ? "bg-emerald-50 border-emerald-200 text-emerald-900"
-      : tone === "warning"
-        ? "bg-amber-50 border-amber-200 text-amber-900"
-        : "bg-destructive/5 border-destructive/20 text-foreground";
-
   return (
-    <div className={`rounded-xl border px-4 py-3 text-sm ${classes}`}>
+    <div
+      className={cn(
+        "rounded-2xl border px-4 py-3 text-sm",
+        tone === "success" && "border-emerald-200 bg-emerald-50 text-emerald-900",
+        tone === "warning" && "border-amber-200 bg-amber-50 text-amber-900",
+        tone === "error" && "border-destructive/20 bg-destructive/5 text-foreground",
+      )}
+    >
       {message}
     </div>
   );
-}
-
-function formatDate(timestamp: number) {
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  }).format(new Date(timestamp));
-}
-
-function formatDateTime(timestamp: number) {
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(timestamp));
-}
-
-function capitalize(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1).replace("_", " ");
-}
-
-function getConnectionState(account: ConnectedAccount) {
-  if (account.reconnectRequired || account.status === "connection_error") {
-    return {
-      label: "Reconnect required",
-      tone: "error" as const,
-    };
-  }
-
-  if (account.refreshFailureCount > 0) {
-    return {
-      label: "Refresh retrying",
-      tone: "warning" as const,
-    };
-  }
-
-  return {
-    label: "Connected",
-    tone: "success" as const,
-  };
 }

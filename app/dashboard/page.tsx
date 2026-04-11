@@ -1,21 +1,23 @@
 "use client";
 
-import { useQuery } from "convex/react";
 import Link from "next/link";
+import { useQuery } from "convex/react";
 import {
-  Zap,
-  Users,
-  MessageSquare,
   AlertCircle,
   ArrowRight,
-  AtSign,
+  MessageSquare,
+  Users,
+  Zap,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
+import {
+  AccountAvatar,
+  getAccountPrimaryLabel,
+} from "@/components/dashboard/account-avatar";
 
 export default function OverviewPage() {
   const data = useQuery(api.dashboard.getOverview);
-  const hasConnectedAccount = Boolean(data?.account);
   const stats = data?.stats ?? {
     activeRules: 0,
     contacts: 0,
@@ -24,53 +26,21 @@ export default function OverviewPage() {
   };
 
   return (
-    <main className="flex-1 px-8 py-10">
-      <div className="max-w-4xl w-full flex flex-col gap-8">
-        {/* Header */}
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">Overview</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Your automation summary at a glance.
+    <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <div className="mx-auto w-full max-w-7xl space-y-6">
+        <header>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+            Overview
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Health and recent activity across all connected accounts.
           </p>
-        </div>
-
-        {/* Account connection notice */}
-        <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 flex items-center gap-4">
-          <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-            <AtSign className="size-4 text-primary" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-foreground">
-              {hasConnectedAccount
-                ? `Connected as @${data?.account?.username ?? "instagram"}`
-                : "No Instagram account connected"}
-            </p>
-            <p className="text-sm text-muted-foreground">
-              {hasConnectedAccount
-                ? "Webhook events, rules, and follow-up sequences can run now."
-                : "Connect a professional account to start automating."}
-            </p>
-          </div>
-          <Link
-            href="/dashboard/account"
-            className="shrink-0 text-sm font-medium bg-primary text-primary-foreground rounded-lg px-4 py-2 hover:opacity-90 transition-opacity"
-          >
-            {hasConnectedAccount ? "Manage" : "Connect"}
-          </Link>
-        </div>
+        </header>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <StatCard
-            label="Active rules"
-            value={String(stats.activeRules)}
-            icon={Zap}
-          />
-          <StatCard
-            label="Contacts"
-            value={String(stats.contacts)}
-            icon={Users}
-          />
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <StatCard label="Active rules" value={String(stats.activeRules)} icon={Zap} />
+          <StatCard label="Contacts" value={String(stats.contacts)} icon={Users} />
           <StatCard
             label="Conversations"
             value={String(stats.conversations)}
@@ -84,69 +54,153 @@ export default function OverviewPage() {
           />
         </div>
 
-        {/* Quick links */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <QuickLink
-            href="/dashboard/rules"
-            title="Automation Rules"
-            description="Set up keyword triggers and automatic DM replies."
-            icon={Zap}
-          />
-          <QuickLink
-            href="/dashboard/contacts"
-            title="Contacts"
-            description="View Instagram users who've interacted with your account."
-            icon={Users}
-          />
-          <QuickLink
-            href="/dashboard/conversations"
-            title="Conversations"
-            description="Browse message threads and automation history."
-            icon={MessageSquare}
-          />
-          <QuickLink
-            href="/dashboard/logs"
-            title="Logs & Failures"
-            description="Inspect delivery attempts, errors, and webhook events."
-            icon={AlertCircle}
-          />
-        </div>
+        {/* Main content */}
+        <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
+          {/* Accounts */}
+          <div className="rounded-[24px] border border-border bg-card p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-foreground">
+                Connected Accounts
+              </h2>
+              <Link
+                href="/dashboard/account"
+                className="text-xs font-medium text-primary transition hover:text-primary/80"
+              >
+                Manage
+              </Link>
+            </div>
 
-        {/* Recent activity */}
-        <div className="flex flex-col gap-3">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
-            Recent Activity
-          </h2>
-          {(data?.recentActivity.length ?? 0) === 0 ? (
-            <div className="bg-card border border-border rounded-xl p-10 flex flex-col items-center text-center gap-2">
-              <p className="text-sm font-medium text-foreground">
-                No activity yet
-              </p>
-              <p className="text-sm text-muted-foreground max-w-sm leading-relaxed">
-                Automation events, replies, and errors will appear here once
-                your account is connected and rules are running.
-              </p>
-            </div>
-          ) : (
-            <div className="bg-card border border-border rounded-xl overflow-hidden divide-y divide-border">
-              {data?.recentActivity.map((item) => (
-                <div
-                  key={item.id}
-                  className="px-5 py-4 flex items-center justify-between gap-4"
-                >
-                  <div>
-                    <p className="text-sm text-foreground">{item.label}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {formatTimestamp(item.time)}
-                    </p>
-                  </div>
-                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    {item.kind.replace("_", " ")}
-                  </span>
+            <div className="mt-4 space-y-2">
+              {(data?.accounts.length ?? 0) === 0 ? (
+                <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-5 py-10 text-center">
+                  <p className="text-sm font-medium text-foreground">
+                    No accounts connected
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Connect an Instagram account to start automating.
+                  </p>
+                  <Link
+                    href="/dashboard/account"
+                    className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90"
+                  >
+                    Get started
+                  </Link>
                 </div>
-              ))}
+              ) : (
+                data?.accounts.map((account) => (
+                  <div
+                    key={account.id}
+                    className={cn(
+                      "flex items-start gap-3 rounded-2xl border p-4",
+                      account.id === data.selectedAccount?.id
+                        ? "border-primary/20 bg-primary/[0.04]"
+                        : "border-border bg-background",
+                    )}
+                  >
+                    <AccountAvatar
+                      username={account.username}
+                      name={account.name}
+                      profilePictureUrl={account.profilePictureUrl}
+                      size="md"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-sm font-semibold text-foreground">
+                          {getAccountPrimaryLabel({
+                            username: account.username,
+                            name: account.name,
+                            instagramAccountId: account.instagramAccountId,
+                          })}
+                        </p>
+                        <StatusPill
+                          reconnectRequired={account.reconnectRequired}
+                          status={account.status}
+                        />
+                        {account.id === data.selectedAccount?.id && (
+                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                      {account.username ? (
+                        <p className="text-xs text-muted-foreground">
+                          @{account.username}
+                        </p>
+                      ) : null}
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                        <span>{account.activeRules} rules</span>
+                        <span>{account.contacts} contacts</span>
+                        <span>{account.conversations} conversations</span>
+                      </div>
+                      {account.lastError ? (
+                        <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
+                          {account.lastError}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
-          )}
+          </div>
+
+          {/* Right panel */}
+          <div className="space-y-4">
+            {/* Quick links */}
+            <div className="rounded-[24px] border border-border bg-card p-5 shadow-sm">
+              <h2 className="text-sm font-semibold text-foreground">
+                Quick Links
+              </h2>
+              <div className="mt-3 space-y-2">
+                <QuickLink
+                  href="/dashboard/automations"
+                  title="Automations"
+                  icon={Zap}
+                />
+                <QuickLink
+                  href="/dashboard/contacts"
+                  title="Contacts"
+                  icon={Users}
+                />
+                <QuickLink
+                  href="/dashboard/conversations"
+                  title="Conversations"
+                  icon={MessageSquare}
+                />
+                <QuickLink
+                  href="/dashboard/logs"
+                  title="Logs"
+                  icon={AlertCircle}
+                />
+              </div>
+            </div>
+
+            {/* Recent activity */}
+            <div className="rounded-[24px] border border-border bg-card p-5 shadow-sm">
+              <h2 className="text-sm font-semibold text-foreground">
+                Recent Activity
+              </h2>
+              <div className="mt-3 space-y-2">
+                {(data?.recentActivity.length ?? 0) === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No recent activity yet.
+                  </p>
+                ) : (
+                  data?.recentActivity.map((item) => (
+                    <div
+                      key={item.id}
+                      className="rounded-xl border border-border bg-background px-3 py-2.5"
+                    >
+                      <p className="text-sm text-foreground">{item.label}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {formatTimestamp(item.time)}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </main>
@@ -175,22 +229,31 @@ function StatCard({
 }) {
   const hasAlert = destructive && value !== "0";
   return (
-    <div className="bg-card border border-border rounded-xl p-4">
-      <Icon
-        className={cn(
-          "size-3.5 mb-3",
-          destructive ? "text-muted-foreground/50" : "text-muted-foreground/50"
-        )}
-      />
-      <p
-        className={cn(
-          "text-2xl font-bold tabular-nums",
-          hasAlert ? "text-destructive" : "text-foreground"
-        )}
-      >
-        {value}
-      </p>
-      <p className="text-xs text-muted-foreground mt-1">{label}</p>
+    <div className="rounded-[20px] border border-border bg-card p-4 shadow-sm sm:p-5">
+      <div className="flex items-start justify-between">
+        <p
+          className={cn(
+            "text-2xl font-semibold tracking-tight tabular-nums sm:text-3xl",
+            hasAlert ? "text-destructive" : "text-foreground",
+          )}
+        >
+          {value}
+        </p>
+        <div
+          className={cn(
+            "flex size-8 items-center justify-center rounded-xl",
+            hasAlert ? "bg-destructive/10" : "bg-muted",
+          )}
+        >
+          <Icon
+            className={cn(
+              "size-4",
+              hasAlert ? "text-destructive" : "text-muted-foreground",
+            )}
+          />
+        </div>
+      </div>
+      <p className="mt-2 text-xs font-medium text-muted-foreground">{label}</p>
     </div>
   );
 }
@@ -198,29 +261,55 @@ function StatCard({
 function QuickLink({
   href,
   title,
-  description,
   icon: Icon,
 }: {
   href: string;
   title: string;
-  description: string;
   icon: React.ElementType;
 }) {
   return (
     <Link
       href={href}
-      className="group bg-card border border-border rounded-xl p-5 flex items-start gap-3.5 hover:shadow-sm transition-all"
+      className="group flex items-center gap-3 rounded-xl border border-border bg-background px-3 py-2.5 transition hover:bg-muted/40"
     >
-      <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-        <Icon className="size-4 text-primary" />
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+        <Icon className="size-3.5 text-primary" />
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold text-foreground">{title}</p>
-        <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-          {description}
-        </p>
-      </div>
-      <ArrowRight className="size-3.5 text-muted-foreground/30 group-hover:text-primary shrink-0 mt-1 transition-colors" />
+      <p className="flex-1 text-sm font-medium text-foreground">{title}</p>
+      <ArrowRight className="size-3.5 text-muted-foreground transition group-hover:text-primary" />
     </Link>
+  );
+}
+
+function StatusPill({
+  status,
+  reconnectRequired,
+}: {
+  status: string;
+  reconnectRequired: boolean;
+}) {
+  const styles =
+    status === "disconnected"
+      ? "border-border bg-muted text-muted-foreground"
+      : reconnectRequired || status === "connection_error"
+        ? "border-amber-200 bg-amber-50 text-amber-900"
+        : "border-emerald-200 bg-emerald-50 text-emerald-700";
+
+  const label =
+    status === "disconnected"
+      ? "Disconnected"
+      : reconnectRequired || status === "connection_error"
+        ? "Reconnect"
+        : "Connected";
+
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium",
+        styles,
+      )}
+    >
+      {label}
+    </span>
   );
 }
