@@ -27,6 +27,7 @@ function serializeRule(
     isActive: rule.isActive,
     triggerCount: rule.triggerCount,
     lastTriggeredAt: rule.lastTriggeredAt,
+    createdAt: rule._creationTime,
     tags: rule.tagIds
       .map((tagId) => tagsById.get(tagId))
       .filter((tag): tag is Doc<"tags"> => tag !== undefined)

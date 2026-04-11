@@ -412,6 +412,7 @@ export default defineSchema({
     // Stats
     triggerCount: v.number(),
     lastTriggeredAt: nullableNumber,
+    lastModifiedAt: v.optional(nullableNumber),
   })
     .index("by_workspace_id", ["workspaceId"])
     .index("by_workspace_id_and_status", ["workspaceId", "status"])

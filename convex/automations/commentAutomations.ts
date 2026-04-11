@@ -160,6 +160,8 @@ function serializeCommentAutomation(
     validationIssues: getCommentAutomationValidationIssues(automation),
     triggerCount: automation.triggerCount,
     lastTriggeredAt: automation.lastTriggeredAt,
+    createdAt: automation._creationTime,
+    lastModifiedAt: automation.lastModifiedAt ?? automation._creationTime,
     latestSession: serializeLatestSession(latestSession),
   };
 }
@@ -213,7 +215,29 @@ export const listCommentAutomations = query({
       )
       .take(50);
 
-    return automations.map((automation) => serializeCommentAutomation(automation));
+    return Promise.all(
+      automations.map(async (automation) => {
+        const sessions = await ctx.db
+          .query("commentAutomationSessions")
+          .withIndex("by_comment_automation_id", (q) =>
+            q.eq("commentAutomationId", automation._id),
+          )
+          .take(10000);
+
+        const totalSessions = sessions.length;
+        const buttonClickCount = sessions.filter(
+          (s) =>
+            s.currentStep !== "opening_dm_sent" &&
+            s.currentStep !== "awaiting_button_click",
+        ).length;
+
+        return {
+          ...serializeCommentAutomation(automation),
+          totalSessions,
+          buttonClickCount,
+        };
+      }),
+    );
   },
 });
 
@@ -372,6 +396,7 @@ export const createCommentAutomation = mutation({
       guardrailConversationId: null,
       triggerCount: 0,
       lastTriggeredAt: null,
+      lastModifiedAt: now,
     });
 
     return { automationId };
@@ -463,6 +488,7 @@ export const updateCommentAutomation = mutation({
     const shouldActivateNext = switchingIntoNext && automation.status === "live";
 
     await ctx.db.patch(automation._id, {
+      lastModifiedAt: Date.now(),
       name: args.name.trim(),
       postScope: args.postScope,
       selectedMediaIds: args.selectedMediaIds,
@@ -540,6 +566,7 @@ export const toggleCommentAutomation = mutation({
     }
 
     await ctx.db.patch(automation._id, {
+      lastModifiedAt: Date.now(),
       status: args.status,
       nextPostActivatedAt:
         args.status === "live" && automation.postScope === "next"

@@ -185,3 +185,25 @@ export function formatCommentAutomationTimestamp(
 
   return new Date(safeTimestamp).toLocaleString();
 }
+
+export function formatRelativeTime(
+  timestamp: number | null | undefined,
+): string {
+  if (!timestamp) return "\u2014";
+
+  const now = Date.now();
+  const diffMs = now - timestamp;
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffSecs < 60) return "Just now";
+  if (diffMins === 1) return "1 min ago";
+  if (diffMins < 60) return `${diffMins} mins ago`;
+  if (diffHours === 1) return "1 hour ago";
+  if (diffHours < 24) return `${diffHours} hours ago`;
+  if (diffDays === 1) return "1 day ago";
+  if (diffDays < 30) return `${diffDays} days ago`;
+  return new Date(timestamp).toLocaleDateString();
+}
