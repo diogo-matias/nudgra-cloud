@@ -41,6 +41,13 @@ export default defineSchema({
     name: v.string(),
     timezone: v.string(),
   }).index("by_owner_user_id", ["ownerUserId"]),
+  workspaceUserPreferences: defineTable({
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    selectedInstagramAccountId: nullableInstagramAccountId,
+  })
+    .index("by_workspace_id_and_user_id", ["workspaceId", "userId"])
+    .index("by_user_id", ["userId"]),
   instagramConnectSessions: defineTable({
     workspaceId: v.id("workspaces"),
     createdByUserId: v.id("users"),
@@ -94,6 +101,11 @@ export default defineSchema({
     graphApiVersion: v.string(),
   })
     .index("by_workspace_id", ["workspaceId"])
+    .index("by_workspace_id_and_instagram_account_id", [
+      "workspaceId",
+      "instagramAccountId",
+    ])
+    .index("by_workspace_id_and_status", ["workspaceId", "status"])
     .index("by_instagram_account_id", ["instagramAccountId"])
     .index("by_status", ["status"]),
   contacts: defineTable({
@@ -110,6 +122,10 @@ export default defineSchema({
   })
     .index("by_workspace_id_and_last_message_at", [
       "workspaceId",
+      "lastMessageAt",
+    ])
+    .index("by_instagram_account_id_and_last_message_at", [
+      "instagramAccountId",
       "lastMessageAt",
     ])
     .index("by_instagram_account_id_and_instagram_user_id", [
@@ -138,6 +154,10 @@ export default defineSchema({
   })
     .index("by_workspace_id_and_last_message_at", [
       "workspaceId",
+      "lastMessageAt",
+    ])
+    .index("by_instagram_account_id_and_last_message_at", [
+      "instagramAccountId",
       "lastMessageAt",
     ])
     .index("by_contact_id", ["contactId"])
@@ -194,7 +214,12 @@ export default defineSchema({
     lastTriggeredAt: nullableNumber,
   })
     .index("by_workspace_id", ["workspaceId"])
-    .index("by_workspace_id_and_is_active", ["workspaceId", "isActive"]),
+    .index("by_workspace_id_and_is_active", ["workspaceId", "isActive"])
+    .index("by_instagram_account_id", ["instagramAccountId"])
+    .index("by_instagram_account_id_and_is_active", [
+      "instagramAccountId",
+      "isActive",
+    ]),
   tags: defineTable({
     workspaceId: v.id("workspaces"),
     label: v.string(),
@@ -252,6 +277,10 @@ export default defineSchema({
     note: nullableString,
   })
     .index("by_received_at", ["receivedAt"])
+    .index("by_instagram_account_id_and_received_at", [
+      "instagramAccountId",
+      "receivedAt",
+    ])
     .index("by_instagram_account_external_id_and_received_at", [
       "instagramAccountExternalId",
       "receivedAt",
@@ -283,6 +312,10 @@ export default defineSchema({
     .index("by_workspace_id_and_event_time", ["workspaceId", "eventTime"])
     .index("by_contact_id", ["contactId"])
     .index("by_status", ["status"])
+    .index("by_instagram_account_id_and_event_time", [
+      "instagramAccountId",
+      "eventTime",
+    ])
     .index("by_instagram_account_id_and_status_and_event_time", [
       "instagramAccountId",
       "status",
@@ -312,6 +345,10 @@ export default defineSchema({
     stopReason: nullableString,
   })
     .index("by_workspace_id_and_status", ["workspaceId", "status"])
+    .index("by_instagram_account_id_and_status", [
+      "instagramAccountId",
+      "status",
+    ])
     .index("by_next_run_at", ["nextRunAt"])
     .index("by_contact_id", ["contactId"]),
 
@@ -377,7 +414,12 @@ export default defineSchema({
     lastTriggeredAt: nullableNumber,
   })
     .index("by_workspace_id", ["workspaceId"])
-    .index("by_workspace_id_and_status", ["workspaceId", "status"]),
+    .index("by_workspace_id_and_status", ["workspaceId", "status"])
+    .index("by_instagram_account_id", ["instagramAccountId"])
+    .index("by_instagram_account_id_and_status", [
+      "instagramAccountId",
+      "status",
+    ]),
 
   instagramMedia: defineTable({
     workspaceId: v.id("workspaces"),
@@ -434,7 +476,11 @@ export default defineSchema({
       "commentAutomationId",
     ])
     .index("by_conversation_id", ["conversationId"])
-    .index("by_workspace_id_and_last_step_at", ["workspaceId", "lastStepAt"]),
+    .index("by_workspace_id_and_last_step_at", ["workspaceId", "lastStepAt"])
+    .index("by_instagram_account_id_and_last_step_at", [
+      "instagramAccountId",
+      "lastStepAt",
+    ]),
   commentAutomationTrackedLinks: defineTable({
     workspaceId: v.id("workspaces"),
     instagramAccountId: v.id("instagramAccounts"),
