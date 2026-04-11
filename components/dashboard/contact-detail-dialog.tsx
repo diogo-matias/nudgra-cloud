@@ -50,10 +50,12 @@ function kindLabel(kind: "rule" | "comment_automation" | "sequence") {
 }
 
 export function ContactDetailDialog({
+  accountId,
   contact,
   open,
   onOpenChange,
 }: {
+  accountId: Id<"instagramAccounts">;
   contact: ContactRow | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -64,7 +66,7 @@ export function ContactDetailDialog({
   );
   const detail = useQuery(
     api.contacts.getContactDetail,
-    contact && open ? { contactId: contact.id } : "skip",
+    contact && open ? { accountId, contactId: contact.id } : "skip",
   );
 
   useEffect(() => {
@@ -83,8 +85,9 @@ export function ContactDetailDialog({
     }
 
     requestedRefreshIdsRef.current.add(contact.id);
-    void requestContactProfileRefresh({ contactId: contact.id });
+    void requestContactProfileRefresh({ accountId, contactId: contact.id });
   }, [
+    accountId,
     contact,
     detail?.profilePictureUrl,
     open,

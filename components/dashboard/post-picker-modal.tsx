@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import {
   Dialog,
   DialogContent,
@@ -11,17 +12,6 @@ import {
 } from "@/components/ui/dialog";
 import { RefreshCw, Check, Film, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-type MediaItem = {
-  id: string;
-  mediaId: string;
-  mediaType: string;
-  thumbnailUrl: string | null;
-  mediaUrl: string | null;
-  caption: string | null;
-  timestamp: string;
-  permalink: string | null;
-};
 
 function timeAgo(timestamp: string) {
   const diff = Date.now() - new Date(timestamp).getTime();
@@ -43,17 +33,21 @@ function truncateCaption(caption: string | null, maxLength = 28) {
 }
 
 export function PostPickerModal({
+  accountId,
   open,
   onOpenChange,
   selectedMediaIds,
   onSelectionChange,
 }: {
+  accountId: Id<"instagramAccounts">;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   selectedMediaIds: string[];
   onSelectionChange: (mediaIds: string[]) => void;
 }) {
-  const media = useQuery(api.meta.mediaQueries.listCachedMedia) ?? [];
+  const media = useQuery(api.meta.mediaQueries.listCachedMedia, {
+    accountId,
+  }) ?? [];
   const refreshMedia = useAction(api.meta.mediaQueries.refreshMedia);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [localSelection, setLocalSelection] =
@@ -74,7 +68,7 @@ export function PostPickerModal({
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
-      await refreshMedia();
+      await refreshMedia({ accountId });
     } catch (error) {
       console.error("Failed to refresh media:", error);
     } finally {

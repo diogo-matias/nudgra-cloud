@@ -6,10 +6,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
-  ChevronRight,
   ExternalLink,
   Filter,
-  Inbox,
   MessageSquare,
   Search,
   Sparkles,
@@ -49,8 +47,10 @@ function isScrolledNearBottom(element: HTMLDivElement) {
 /* ─── main shell ─── */
 
 export function InboxShell({
+  accountId,
   routeConversationId = null,
 }: {
+  accountId: Id<"instagramAccounts">;
   routeConversationId?: Id<"conversations"> | null;
 }) {
   const router = useRouter();
@@ -76,6 +76,7 @@ export function InboxShell({
   );
 
   const inbox = useQuery(api.inbox.listInbox, {
+    accountId,
     unreadOnly,
     statusFilter,
     search,
@@ -89,7 +90,7 @@ export function InboxShell({
   const detail = useQuery(
     api.inbox.getConversationDetail,
     selectedConversationId
-      ? { conversationId: selectedConversationId }
+      ? { accountId, conversationId: selectedConversationId }
       : "skip",
   );
   const hasConversationDetail = detail !== undefined && detail !== null;
@@ -111,16 +112,22 @@ export function InboxShell({
       .slice(0, 12);
     for (const c of missingProfiles) {
       requestedRefreshIdsRef.current.add(c.contact.id);
-      void requestContactProfileRefresh({ contactId: c.contact.id });
+      void requestContactProfileRefresh({
+        accountId,
+        contactId: c.contact.id,
+      });
     }
-  }, [inbox, requestContactProfileRefresh]);
+  }, [accountId, inbox, requestContactProfileRefresh]);
 
   useEffect(() => {
     if (!detail?.contact || detail.contact.profilePictureUrl !== null) return;
     if (requestedRefreshIdsRef.current.has(detail.contact.id)) return;
     requestedRefreshIdsRef.current.add(detail.contact.id);
-    void requestContactProfileRefresh({ contactId: detail.contact.id });
-  }, [detail, requestContactProfileRefresh]);
+    void requestContactProfileRefresh({
+      accountId,
+      contactId: detail.contact.id,
+    });
+  }, [accountId, detail, requestContactProfileRefresh]);
 
   useEffect(() => {
     if (!selectedConversationId) return;
