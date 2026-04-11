@@ -57,6 +57,17 @@ export async function createSequenceEnrollment(
     stopReason: null,
   });
 
+  await ctx.runMutation(internal.contacts.upsertContactAutomationMembership, {
+    workspaceId: args.workspaceId,
+    contactId: args.contactId,
+    conversationId: args.conversationId,
+    automationKind: "sequence",
+    automationRuleId: null,
+    commentAutomationId: null,
+    sequenceDefinitionId: args.sequenceDefinitionId,
+    matchedAt: now,
+  });
+
   if (nextRunAt !== null && firstStep) {
     await ctx.scheduler.runAfter(
       firstStep.delayMinutes * 60 * 1000,

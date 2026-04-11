@@ -7,6 +7,7 @@ import {
   META_WEBHOOK_SUBSCRIBED_FIELDS,
   requireMetaEnv,
 } from "./config";
+import { isMetaAuthError, parseMetaApiError } from "./authShared";
 
 type TokenExchangeResponse = {
   access_token?: string;
@@ -181,17 +182,55 @@ async function subscribeInstagramAccount(args: {
 }
 
 export const refreshProfilePicture = action({
-  args: {},
-  handler: async (ctx) => {
-    const account = await ctx.runQuery(
-      internal.accounts.getConnectedAccountWithToken,
-      {},
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
+    let account = await ctx.runQuery(
+      internal.accounts.getOwnedAccountWithToken,
+      { accountId: args.accountId },
     );
     if (account === null || !account.graphAccessToken) {
       throw new Error("No connected Instagram account with a valid token.");
     }
 
-    const profile = await fetchInstagramProfile(account.graphAccessToken);
+    let profile: Awaited<ReturnType<typeof fetchInstagramProfile>>;
+    try {
+      profile = await fetchInstagramProfile(account.graphAccessToken);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to refresh the Instagram profile.";
+      const parsedError = parseMetaApiError(
+        message,
+        "Failed to refresh the Instagram profile.",
+      );
+
+      if (!isMetaAuthError(parsedError)) {
+        throw error;
+      }
+
+      const refreshResult: { tokenUsable: boolean } = await ctx.runAction(
+        internal.meta.tokenLifecycle.refreshAccountToken,
+        {
+          accountId: account.id,
+          reason: "auth_error",
+        },
+      );
+
+      if (!refreshResult.tokenUsable) {
+        throw new Error(parsedError.message);
+      }
+
+      account = await ctx.runQuery(
+        internal.accounts.getOwnedAccountWithToken,
+        { accountId: args.accountId },
+      );
+      if (account === null || !account.graphAccessToken) {
+        throw new Error(parsedError.message);
+      }
+
+      profile = await fetchInstagramProfile(account.graphAccessToken);
+    }
 
     await ctx.runMutation(internal.accounts.patchAccountProfile, {
       accountId: account.id,
@@ -271,8 +310,7 @@ export const exchangeCodeForAccount = action({
           ? session.requestedScopes
           : META_REQUESTED_SCOPES,
         webhookSubscriptionStatus: subscription.status,
-        status:
-          subscription.status === "active" ? "connected" : "connection_error",
+        status: "connected",
         lastError: subscription.warning,
         graphApiVersion: META_GRAPH_API_VERSION,
       });

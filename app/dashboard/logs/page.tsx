@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { Activity, AlertCircle, CheckCircle2, Clock, Radio } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
+import { SelectedAccountEmptyState } from "@/components/dashboard/selected-account-empty-state";
 
 type FilterTab = "all" | "failures" | "webhooks";
 
@@ -37,8 +38,25 @@ const STATUS_CONFIG = {
 };
 
 export default function LogsPage() {
+  const accountContext = useQuery(api.accounts.getSelectedAccountContext);
+  const selectedAccount = accountContext?.selectedAccount ?? null;
   const [tab, setTab] = useState<FilterTab>("all");
-  const logs = useQuery(api.dashboard.listLogs) ?? [];
+  const logs =
+    useQuery(
+      api.dashboard.listLogs,
+      selectedAccount ? { accountId: selectedAccount.id } : "skip",
+    ) ?? [];
+
+  if (selectedAccount === null) {
+    return (
+      <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <SelectedAccountEmptyState
+          title="No active Instagram account"
+          description="Choose an active Instagram account from the sidebar before opening logs."
+        />
+      </main>
+    );
+  }
 
   const filtered = logs.filter((log) => {
     if (tab === "failures") {
@@ -58,7 +76,8 @@ export default function LogsPage() {
         <div>
           <h1 className="text-xl font-semibold text-foreground">Logs</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Automation events, delivery attempts, and webhook activity.
+            Automation events, delivery attempts, and webhook activity for{" "}
+            {selectedAccount.username ? `@${selectedAccount.username}` : "the active account"}.
           </p>
         </div>
 

@@ -23,6 +23,12 @@ type MessagingItem = {
     quick_reply?: {
       payload?: string;
     };
+    attachments?: Array<{
+      type?: string;
+      payload?: {
+        url?: string;
+      };
+    }>;
   };
   postback?: {
     title?: string;
@@ -37,6 +43,8 @@ type WebhookReceiptStatus =
   | "ignored"
   | "invalid_json"
   | "unmatched_account";
+
+const CONTACT_PROFILE_REFRESH_INTERVAL_MS = 2 * 24 * 60 * 60 * 1000;
 
 function stringifyPayload(payload: unknown) {
   try {
@@ -123,6 +131,93 @@ function getWebhookExternalAccountId(payload: unknown) {
   }
 
   return "";
+}
+
+function humanizeInteractionPayload(payload: string) {
+  if (payload === "comment_automation:opening_dm") {
+    return "Send me the link";
+  }
+
+  if (payload === "comment_automation:follow_gate") {
+    return "Following";
+  }
+
+  return payload
+    .split(/[:_]/g)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function describeAttachmentType(type: string | undefined) {
+  switch (type) {
+    case "image":
+      return "Sent a photo";
+    case "video":
+      return "Sent a video";
+    case "audio":
+      return "Sent a voice message";
+    case "file":
+      return "Sent a file";
+    case "story_share":
+      return "Shared your story";
+    case "fallback":
+      return "Sent an attachment";
+    default:
+      return "Sent an attachment";
+  }
+}
+
+function describeInboundInteraction(item: MessagingItem, rawText: string | null) {
+  const postbackTitle = item.postback?.title?.trim() || null;
+  const postbackPayload = item.postback?.payload?.trim() || null;
+  const quickReplyPayload = item.message?.quick_reply?.payload?.trim() || null;
+  const firstAttachmentType = item.message?.attachments?.[0]?.type;
+
+  if (postbackTitle) {
+    return postbackTitle;
+  }
+
+  if (postbackPayload) {
+    return humanizeInteractionPayload(postbackPayload);
+  }
+
+  if (quickReplyPayload && rawText) {
+    return rawText;
+  }
+
+  if (quickReplyPayload) {
+    return humanizeInteractionPayload(quickReplyPayload);
+  }
+
+  if (firstAttachmentType) {
+    return describeAttachmentType(firstAttachmentType);
+  }
+
+  return rawText;
+}
+
+function shouldRefreshContactProfile(
+  contact:
+    | {
+        profilePictureUrl: string | null;
+        profilePictureFetchedAt?: number | null;
+      }
+    | null,
+  now: number,
+) {
+  if (contact === null) {
+    return true;
+  }
+
+  if (
+    contact.profilePictureFetchedAt === undefined ||
+    contact.profilePictureFetchedAt === null
+  ) {
+    return true;
+  }
+
+  return now - contact.profilePictureFetchedAt > CONTACT_PROFILE_REFRESH_INTERVAL_MS;
 }
 
 async function finalizeWebhookReceipt(
@@ -249,16 +344,17 @@ export const ingestWebhookPayload = internalMutation({
         continue;
       }
 
-      if (item.message?.is_echo) {
-        ignored += 1;
-        continue;
-      }
-
       const messageTime = item.timestamp ?? item.time ?? Date.now();
       const hasMessage = Boolean(item.message);
       const isStoryReply = Boolean(item.message?.reply_to);
       const isPostback = Boolean(item.postback);
       const isQuickReply = Boolean(item.message?.quick_reply);
+      const isEcho = Boolean(item.message?.is_echo);
+      const direction = isEcho ? "outbound" : "inbound";
+      const contactInstagramUserId = isEcho ? item.recipient.id : item.sender.id;
+      const contactUsername = isEcho ? null : item.sender.username ?? null;
+      const contactDisplayName =
+        isEcho ? null : item.sender.name ?? item.sender.username ?? null;
       if (!hasMessage && !isPostback) {
         ignored += 1;
         continue;
@@ -269,16 +365,17 @@ export const ingestWebhookPayload = internalMutation({
         : isStoryReply
           ? "story_reply"
           : "message";
-      const text =
+      const rawText =
         typeof item.message?.text === "string"
           ? item.message.text.trim()
           : typeof item.postback?.title === "string"
             ? item.postback.title.trim()
             : null;
+      const displayText = describeInboundInteraction(item, rawText);
       const metaMessageId = item.message?.mid ?? item.postback?.mid ?? null;
       const deliveryKey =
         metaMessageId ??
-        `${instagramAccountExternalId}:${item.sender.id}:${messageTime}:${eventType}`;
+        `${instagramAccountExternalId}:${contactInstagramUserId}:${messageTime}:${eventType}:${direction}`;
 
       const existingEvent = await ctx.db
         .query("webhookEvents")
@@ -306,7 +403,7 @@ export const ingestWebhookPayload = internalMutation({
         .withIndex("by_instagram_account_id_and_instagram_user_id", (q) =>
           q
             .eq("instagramAccountId", account._id)
-            .eq("instagramUserId", item.sender!.id!),
+            .eq("instagramUserId", contactInstagramUserId),
         )
         .unique();
 
@@ -315,24 +412,24 @@ export const ingestWebhookPayload = internalMutation({
         (await ctx.db.insert("contacts", {
           workspaceId: account.workspaceId,
           instagramAccountId: account._id,
-          instagramUserId: item.sender.id,
-          username: item.sender.username ?? null,
-          displayName: item.sender.name ?? item.sender.username ?? null,
+          instagramUserId: contactInstagramUserId,
+          username: contactUsername,
+          displayName: contactDisplayName,
           profilePictureUrl: null,
           firstInboundAt: messageTime,
           lastInboundAt: messageTime,
           lastMessageAt: messageTime,
+          profilePictureFetchedAt: null,
         }));
 
       if (existingContact) {
         await ctx.db.patch(existingContact._id, {
-          username: item.sender.username ?? existingContact.username,
-          displayName:
-            item.sender.name ??
-            item.sender.username ??
-            existingContact.displayName,
-          lastInboundAt: messageTime,
-          lastMessageAt: messageTime,
+          username: contactUsername ?? existingContact.username,
+          displayName: contactDisplayName ?? existingContact.displayName,
+          lastInboundAt: isEcho
+            ? existingContact.lastInboundAt
+            : Math.max(existingContact.lastInboundAt, messageTime),
+          lastMessageAt: Math.max(existingContact.lastMessageAt, messageTime),
         });
       }
 
@@ -349,31 +446,66 @@ export const ingestWebhookPayload = internalMutation({
           workspaceId: account.workspaceId,
           instagramAccountId: account._id,
           contactId,
-          conversationKey: `${account.instagramAccountId}:${item.sender.id}`,
+          conversationKey: `${account.instagramAccountId}:${contactInstagramUserId}`,
           status: "active",
           startedAt: messageTime,
           lastMessageAt: messageTime,
-          lastInboundAt: messageTime,
-          lastOutboundAt: null,
-          lastMessagePreview: makeMessagePreview(text),
-          messagingWindowClosesAt: messageTime + 24 * 60 * 60 * 1000,
+          lastInboundAt: isEcho ? null : messageTime,
+          lastOutboundAt: isEcho ? messageTime : null,
+          lastMessagePreview: makeMessagePreview(displayText),
+          messagingWindowClosesAt: isEcho
+            ? null
+            : messageTime + 24 * 60 * 60 * 1000,
           lastAutomationRuleId: null,
         }));
 
       if (existingConversation) {
         await ctx.db.patch(existingConversation._id, {
           status: "active",
-          lastMessageAt: messageTime,
-          lastInboundAt: messageTime,
-          lastMessagePreview: makeMessagePreview(text),
-          messagingWindowClosesAt: messageTime + 24 * 60 * 60 * 1000,
+          lastMessageAt: Math.max(existingConversation.lastMessageAt, messageTime),
+          lastInboundAt: isEcho
+            ? existingConversation.lastInboundAt
+            : existingConversation.lastInboundAt === null
+              ? messageTime
+              : Math.max(existingConversation.lastInboundAt, messageTime),
+          lastOutboundAt: isEcho
+            ? existingConversation.lastOutboundAt === null
+              ? messageTime
+              : Math.max(existingConversation.lastOutboundAt, messageTime)
+            : existingConversation.lastOutboundAt,
+          lastMessagePreview:
+            messageTime >= existingConversation.lastMessageAt
+              ? makeMessagePreview(displayText)
+              : existingConversation.lastMessagePreview,
+          messagingWindowClosesAt: isEcho
+            ? existingConversation.messagingWindowClosesAt
+            : messageTime + 24 * 60 * 60 * 1000,
         });
       }
 
-      const existingMessage = await ctx.db
-        .query("messages")
-        .withIndex("by_dedupe_key", (q) => q.eq("dedupeKey", deliveryKey))
-        .unique();
+      if (shouldRefreshContactProfile(existingContact, messageTime)) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.meta.contactProfiles.refreshContactProfile,
+          {
+            contactId,
+          },
+        );
+      }
+
+      const existingMessage =
+        (metaMessageId === null
+          ? null
+          : await ctx.db
+              .query("messages")
+              .withIndex("by_meta_message_id", (q) =>
+                q.eq("metaMessageId", metaMessageId),
+              )
+              .unique()) ??
+        (await ctx.db
+          .query("messages")
+          .withIndex("by_dedupe_key", (q) => q.eq("dedupeKey", deliveryKey))
+          .unique());
 
       if (existingMessage === null) {
         await ctx.db.insert("messages", {
@@ -381,13 +513,13 @@ export const ingestWebhookPayload = internalMutation({
           instagramAccountId: account._id,
           conversationId,
           contactId,
-          direction: "inbound",
+          direction,
           source: "webhook",
           messageType: isStoryReply ? "story_reply" : "text",
-          text,
+          text: displayText,
           metaMessageId,
           dedupeKey: deliveryKey,
-          deliveryStatus: "received",
+          deliveryStatus: isEcho ? "sent" : "received",
           eventTime: messageTime,
           webhookEventId,
           automationRuleId: null,
@@ -397,19 +529,19 @@ export const ingestWebhookPayload = internalMutation({
 
       const activeRules = await ctx.db
         .query("automationRules")
-        .withIndex("by_workspace_id_and_is_active", (q) =>
-          q.eq("workspaceId", account.workspaceId).eq("isActive", true),
+        .withIndex("by_instagram_account_id_and_is_active", (q) =>
+          q.eq("instagramAccountId", account._id).eq("isActive", true),
         )
         .take(50);
 
       const matchedRule =
-        !isPostback && !isQuickReply
+        !isEcho && !isPostback && !isQuickReply
           ? activeRules.find((rule) =>
               matchesAutomationRule({
                 triggerType: rule.triggerType,
                 matchType: rule.matchType,
                 keywords: rule.keywords,
-                messageText: text,
+                messageText: rawText,
                 isStoryReply,
               }),
             )
@@ -424,6 +556,20 @@ export const ingestWebhookPayload = internalMutation({
         await ctx.db.patch(conversationId, {
           lastAutomationRuleId: matchedRule._id,
         });
+
+        await ctx.runMutation(
+          internal.contacts.upsertContactAutomationMembership,
+          {
+            workspaceId: account.workspaceId,
+            contactId,
+            conversationId,
+            automationKind: "rule",
+            automationRuleId: matchedRule._id,
+            commentAutomationId: null,
+            sequenceDefinitionId: null,
+            matchedAt: messageTime,
+          },
+        );
 
         for (const tagId of matchedRule.tagIds) {
           const existingContactTag = await ctx.db
@@ -468,7 +614,7 @@ export const ingestWebhookPayload = internalMutation({
       }
 
       // Check for active comment automation sessions and advance them
-      if (!matchedRule) {
+      if (!matchedRule && !isEcho) {
         const recentSessions = await ctx.db
           .query("commentAutomationSessions")
           .withIndex("by_conversation_id", (q) =>
@@ -486,7 +632,7 @@ export const ingestWebhookPayload = internalMutation({
         if (activeSession) {
           const inboundInteraction = {
             hasMessage,
-            text,
+            text: rawText,
             postbackPayload:
               typeof item.postback?.payload === "string"
                 ? item.postback.payload.trim()

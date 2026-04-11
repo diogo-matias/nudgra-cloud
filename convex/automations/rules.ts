@@ -2,10 +2,11 @@ import { mutation, query } from "../_generated/server";
 import { v } from "convex/values";
 import { Doc, Id } from "../_generated/dataModel";
 import {
-  getWorkspaceInstagramAccount,
+  getWorkspaceInstagramAccountById,
   requireConnectedInstagramAccount,
   requireCurrentUserId,
   requireCurrentWorkspace,
+  requireWorkspaceInstagramAccount,
 } from "../lib/auth";
 import { normalizeKeywordList } from "./shared";
 
@@ -26,6 +27,7 @@ function serializeRule(
     isActive: rule.isActive,
     triggerCount: rule.triggerCount,
     lastTriggeredAt: rule.lastTriggeredAt,
+    createdAt: rule._creationTime,
     tags: rule.tagIds
       .map((tagId) => tagsById.get(tagId))
       .filter((tag): tag is Doc<"tags"> => tag !== undefined)
@@ -37,12 +39,15 @@ function serializeRule(
 }
 
 export const listCurrentRules = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
     const rules = await ctx.db
       .query("automationRules")
-      .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspace._id))
+      .withIndex("by_instagram_account_id", (q) =>
+        q.eq("instagramAccountId", args.accountId),
+      )
       .take(100);
 
     const tags = await ctx.db
@@ -62,10 +67,14 @@ export const listCurrentRules = query({
 });
 
 export const getRuleCreationOptions = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
-    const account = await getWorkspaceInstagramAccount(ctx, workspace._id);
+    const account = await getWorkspaceInstagramAccountById(
+      ctx,
+      workspace._id,
+      args.accountId,
+    );
     const tags = await ctx.db
       .query("tags")
       .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspace._id))
@@ -93,11 +102,19 @@ export const getRuleCreationOptions = query({
 });
 
 export const getRuleById = query({
-  args: { ruleId: v.id("automationRules") },
+  args: {
+    accountId: v.id("instagramAccounts"),
+    ruleId: v.id("automationRules"),
+  },
   handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
     const rule = await ctx.db.get(args.ruleId);
-    if (rule === null || rule.workspaceId !== workspace._id) {
+    if (
+      rule === null ||
+      rule.workspaceId !== workspace._id ||
+      rule.instagramAccountId !== args.accountId
+    ) {
       return null;
     }
 
@@ -120,6 +137,7 @@ export const getRuleById = query({
 
 export const createRule = mutation({
   args: {
+    accountId: v.id("instagramAccounts"),
     name: v.string(),
     triggerType: v.union(v.literal("keyword"), v.literal("story_reply")),
     matchType: v.union(v.literal("contains"), v.literal("exact")),
@@ -131,7 +149,11 @@ export const createRule = mutation({
   },
   handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
-    const account = await requireConnectedInstagramAccount(ctx, workspace._id);
+    const account = await requireConnectedInstagramAccount(
+      ctx,
+      workspace._id,
+      args.accountId,
+    );
     const userId = await requireCurrentUserId(ctx);
 
     const normalizedKeywords =
@@ -181,13 +203,19 @@ export const createRule = mutation({
 
 export const toggleRule = mutation({
   args: {
+    accountId: v.id("instagramAccounts"),
     ruleId: v.id("automationRules"),
     isActive: v.boolean(),
   },
   handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
     const rule = await ctx.db.get(args.ruleId);
-    if (rule === null || rule.workspaceId !== workspace._id) {
+    if (
+      rule === null ||
+      rule.workspaceId !== workspace._id ||
+      rule.instagramAccountId !== args.accountId
+    ) {
       throw new Error("Rule not found.");
     }
 

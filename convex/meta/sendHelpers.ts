@@ -1,6 +1,7 @@
 import { internal } from "../_generated/api";
 import { Id } from "../_generated/dataModel";
 import { MutationCtx } from "../_generated/server";
+import { canUseAccountToken } from "./authShared";
 
 export type AutomatedQuickReply = {
   content_type: "text";
@@ -81,22 +82,30 @@ async function queueAutomatedMessage(
   const policyWindowOpen =
     conversation.messagingWindowClosesAt !== null &&
     conversation.messagingWindowClosesAt >= now;
+  const tokenExpired =
+    account.tokenExpiresAt !== null && account.tokenExpiresAt <= now;
+  const accountTokenUsable = canUseAccountToken({
+    status: account.status,
+    graphAccessToken: account.graphAccessToken,
+    reconnectRequired: account.reconnectRequired ?? false,
+  });
 
-  const status =
-    !policyWindowOpen ||
-    account.status !== "connected" ||
-    !account.graphAccessToken
-      ? account.status === "connected" && account.graphAccessToken
-        ? "skipped"
-        : "failed"
-      : "queued";
+  const status = !policyWindowOpen
+    ? "skipped_expired"
+    : account.status === "disconnected"
+      ? "skipped"
+      : !accountTokenUsable || tokenExpired
+        ? "blocked_auth"
+        : "queued";
 
   const reason =
     status === "queued"
       ? null
       : !policyWindowOpen
         ? "24-hour messaging window expired."
-        : "Connected Instagram account is unavailable.";
+        : status === "skipped"
+          ? "Instagram account was disconnected before the delivery could be sent."
+          : "Outbound sending is paused until Instagram token access recovers.";
 
   const deliveryAttemptId = await ctx.db.insert("deliveryAttempts", {
     workspaceId: args.workspaceId,
@@ -124,7 +133,20 @@ async function queueAutomatedMessage(
         deliveryAttemptId,
       },
     );
-  } else if (status === "skipped") {
+  } else if (
+    status === "blocked_auth" &&
+    tokenExpired &&
+    account.graphAccessToken
+  ) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.meta.tokenLifecycle.refreshAccountToken,
+      {
+        accountId: account._id,
+        reason: "scheduled",
+      },
+    );
+  } else if (status === "skipped_expired") {
     await ctx.db.patch(args.conversationId, {
       status: "window_closed",
     });

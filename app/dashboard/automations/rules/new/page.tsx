@@ -7,6 +7,7 @@ import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, X, Plus } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { SelectedAccountEmptyState } from "@/components/dashboard/selected-account-empty-state";
 
 type TriggerType = "keyword" | "story_reply";
 
@@ -29,7 +30,12 @@ const TRIGGER_OPTIONS: {
 
 export default function NewRulePage() {
   const router = useRouter();
-  const options = useQuery(api.automations.rules.getRuleCreationOptions);
+  const accountContext = useQuery(api.accounts.getSelectedAccountContext);
+  const selectedAccount = accountContext?.selectedAccount ?? null;
+  const options = useQuery(
+    api.automations.rules.getRuleCreationOptions,
+    selectedAccount ? { accountId: selectedAccount.id } : "skip",
+  );
   const createRule = useMutation(api.automations.rules.createRule);
   const [name, setName] = useState("");
   const [triggerType, setTriggerType] = useState<TriggerType>("keyword");
@@ -63,6 +69,7 @@ export default function NewRulePage() {
 
   async function handleSubmit() {
     const result = await createRule({
+      accountId: selectedAccount!.id,
       name,
       triggerType,
       matchType: "contains",
@@ -82,6 +89,17 @@ export default function NewRulePage() {
     (triggerType === "story_reply" || keywords.length > 0) &&
     Boolean(options?.hasConnectedAccount);
 
+  if (selectedAccount === null) {
+    return (
+      <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <SelectedAccountEmptyState
+          title="No active Instagram account"
+          description="Choose an active Instagram account from the sidebar before creating a DM rule."
+        />
+      </main>
+    );
+  }
+
   return (
     <main className="flex-1 px-8 py-10">
       <div className="max-w-2xl w-full flex flex-col gap-8">
@@ -98,7 +116,8 @@ export default function NewRulePage() {
               New DM rule
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Define a trigger, reply, tags, and an optional follow-up sequence.
+              Define a trigger, reply, tags, and an optional follow-up sequence
+              for {selectedAccount.username ? ` @${selectedAccount.username}` : " the active account"}.
             </p>
           </div>
         </div>

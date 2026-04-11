@@ -25,7 +25,13 @@ export const getQueuedDeliveryContext = internalQuery({
 export const markDeliveryAttemptResult = internalMutation({
   args: {
     deliveryAttemptId: v.id("deliveryAttempts"),
-    status: v.union(v.literal("sent"), v.literal("failed")),
+    status: v.union(
+      v.literal("sent"),
+      v.literal("failed"),
+      v.literal("blocked_auth"),
+      v.literal("skipped"),
+      v.literal("skipped_expired"),
+    ),
     reason: v.union(v.string(), v.null()),
     responsePayload: v.union(v.string(), v.null()),
     metaMessageId: v.union(v.string(), v.null()),
@@ -43,6 +49,13 @@ export const markDeliveryAttemptResult = internalMutation({
       metaMessageId: args.metaMessageId,
       eventTime: Date.now(),
     });
+
+    if (args.status === "skipped_expired") {
+      await ctx.db.patch(attempt.conversationId, {
+        status: "window_closed",
+      });
+      return null;
+    }
 
     if (args.status !== "sent") {
       return null;
@@ -107,5 +120,162 @@ export const rescheduleDeliveryAttempt = internalMutation({
     );
 
     return null;
+  },
+});
+
+export const requeueBlockedDeliveryAttempt = internalMutation({
+  args: {
+    deliveryAttemptId: v.id("deliveryAttempts"),
+    reason: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const attempt = await ctx.db.get(args.deliveryAttemptId);
+    if (attempt === null) {
+      return null;
+    }
+
+    await ctx.db.patch(attempt._id, {
+      status: "queued",
+      reason: args.reason,
+      responsePayload: null,
+      attemptNumber: attempt.attemptNumber + 1,
+      eventTime: Date.now(),
+    });
+
+    await ctx.scheduler.runAfter(
+      0,
+      internal.meta.sendActions.performQueuedDelivery,
+      {
+        deliveryAttemptId: attempt._id,
+      },
+    );
+
+    return null;
+  },
+});
+
+export const replayBlockedDeliveries = internalMutation({
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.accountId);
+    if (
+      account === null ||
+      account.status !== "connected" ||
+      account.reconnectRequired === true ||
+      account.graphAccessToken === null
+    ) {
+      return { requeued: 0, expired: 0, remaining: 0 };
+    }
+
+    const blockedAttempts = await ctx.db
+      .query("deliveryAttempts")
+      .withIndex("by_instagram_account_id_and_status_and_event_time", (q) =>
+        q.eq("instagramAccountId", args.accountId).eq("status", "blocked_auth"),
+      )
+      .take(50);
+
+    let requeued = 0;
+    let expired = 0;
+
+    for (const attempt of blockedAttempts) {
+      const conversation = await ctx.db.get(attempt.conversationId);
+      const now = Date.now();
+      const policyWindowOpen =
+        conversation !== null &&
+        conversation.messagingWindowClosesAt !== null &&
+        conversation.messagingWindowClosesAt >= now;
+
+      if (!policyWindowOpen) {
+        await ctx.db.patch(attempt._id, {
+          status: "skipped_expired",
+          reason: "24-hour messaging window expired before auth recovered.",
+          eventTime: now,
+        });
+        if (conversation !== null) {
+          await ctx.db.patch(conversation._id, {
+            status: "window_closed",
+          });
+        }
+        expired += 1;
+        continue;
+      }
+
+      await ctx.db.patch(attempt._id, {
+        status: "queued",
+        reason: "Token recovered. Retrying delivery.",
+        responsePayload: null,
+        attemptNumber: attempt.attemptNumber + 1,
+        eventTime: now,
+      });
+      await ctx.scheduler.runAfter(
+        0,
+        internal.meta.sendActions.performQueuedDelivery,
+        {
+          deliveryAttemptId: attempt._id,
+        },
+      );
+      requeued += 1;
+    }
+
+    const remaining = await ctx.db
+      .query("deliveryAttempts")
+      .withIndex("by_instagram_account_id_and_status_and_event_time", (q) =>
+        q.eq("instagramAccountId", args.accountId).eq("status", "blocked_auth"),
+      )
+      .take(1);
+
+    if (blockedAttempts.length === 50 && remaining.length > 0) {
+      await ctx.scheduler.runAfter(
+        5_000,
+        internal.meta.send.replayBlockedDeliveries,
+        {
+          accountId: args.accountId,
+        },
+      );
+    }
+
+    return {
+      requeued,
+      expired,
+      remaining: remaining.length,
+    };
+  },
+});
+
+export const terminalizePendingDeliveriesForAccount = internalMutation({
+  args: {
+    accountId: v.id("instagramAccounts"),
+    reason: v.string(),
+  },
+  handler: async (ctx, args) => {
+    let updated = 0;
+
+    for (const status of ["queued", "blocked_auth"] as const) {
+      const attempts = await ctx.db
+        .query("deliveryAttempts")
+        .withIndex("by_instagram_account_id_and_status_and_event_time", (q) =>
+          q.eq("instagramAccountId", args.accountId).eq("status", status),
+        )
+        .take(50);
+
+      for (const attempt of attempts) {
+        await ctx.db.patch(attempt._id, {
+          status: "skipped",
+          reason: args.reason,
+          eventTime: Date.now(),
+        });
+        updated += 1;
+      }
+
+      if (attempts.length === 50) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.meta.send.terminalizePendingDeliveriesForAccount,
+          args,
+        );
+      }
+    }
+
+    return { updated };
   },
 });

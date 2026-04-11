@@ -142,7 +142,10 @@ export const ingestCommentWebhookPayload = internalAction({
       );
 
       if (result.status === "needs_refresh" && result.refreshContext !== null) {
-        await ctx.runAction(internal.meta.media.fetchAccountMedia, result.refreshContext);
+        await ctx.runAction(
+          internal.meta.media.fetchAccountMedia,
+          result.refreshContext,
+        );
         result = await ctx.runMutation(
           internal.meta.commentWebhooks.processCommentWebhookItem,
           {
@@ -179,8 +182,8 @@ export const processCommentWebhookItem = internalMutation({
 
     const automations = await ctx.db
       .query("commentAutomations")
-      .withIndex("by_workspace_id_and_status", (q) =>
-        q.eq("workspaceId", account.workspaceId).eq("status", "live"),
+      .withIndex("by_instagram_account_id_and_status", (q) =>
+        q.eq("instagramAccountId", account._id).eq("status", "live"),
       )
       .take(50);
 
@@ -230,7 +233,10 @@ export const processCommentWebhookItem = internalMutation({
           .take(100);
       }
 
-      const lockedMedia = getEarliestMediaAfterActivation(cachedMedia, activationTime);
+      const lockedMedia = getEarliestMediaAfterActivation(
+        cachedMedia,
+        activationTime,
+      );
       if (lockedMedia === undefined) {
         shouldRefresh = shouldRefresh || args.allowRefresh;
         continue;
@@ -262,10 +268,7 @@ export const processCommentWebhookItem = internalMutation({
         return {
           status: "needs_refresh" as const,
           refreshContext: {
-            workspaceId: account.workspaceId,
-            instagramAccountDocId: account._id,
-            instagramAccountId: account.instagramAccountId,
-            accessToken: account.graphAccessToken,
+            accountId: account._id,
           },
         };
       }
@@ -353,10 +356,9 @@ export const processCommentWebhookItem = internalMutation({
         ];
 
       await ctx.scheduler.runAfter(0, internal.meta.comments.replyToComment, {
+        accountId: account._id,
         commentId: args.commentId,
         message: replyText,
-        accessToken: account.graphAccessToken,
-        graphApiVersion: account.graphApiVersion,
       });
     }
 

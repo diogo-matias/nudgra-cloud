@@ -32,6 +32,7 @@ import {
   getCommentAutomationStepLabel,
   mergeCommentAutomationKeywords,
 } from "@/lib/comment-automation-ui";
+import { SelectedAccountEmptyState } from "@/components/dashboard/selected-account-empty-state";
 
 type PostScope = "specific" | "any" | "next";
 type CommentFilter = "specific_words" | "any_word";
@@ -39,13 +40,18 @@ type CommentFilter = "specific_words" | "any_word";
 export default function CommentAutomationDetailPage() {
   const params = useParams<{ automationId: string }>();
   const automationId = params.automationId as Id<"commentAutomations">;
+  const accountContext = useQuery(api.accounts.getSelectedAccountContext);
+  const selectedAccount = accountContext?.selectedAccount ?? null;
 
   const automation = useQuery(
     api.automations.commentAutomations.getCommentAutomationById,
-    { automationId },
+    selectedAccount ? { accountId: selectedAccount.id, automationId } : "skip",
   );
-  const accountStatus = useQuery(api.accounts.getCurrentAccountStatus);
-  const media = useQuery(api.meta.mediaQueries.listCachedMedia) ?? [];
+  const media =
+    useQuery(
+      api.meta.mediaQueries.listCachedMedia,
+      selectedAccount ? { accountId: selectedAccount.id } : "skip",
+    ) ?? [];
   const updateAutomation = useMutation(
     api.automations.commentAutomations.updateCommentAutomation,
   );
@@ -175,6 +181,7 @@ export default function CommentAutomationDetailPage() {
     try {
       const primaryLink = linkButtons[0] ?? null;
       await updateAutomation({
+        accountId: selectedAccount!.id,
         automationId,
         name,
         postScope,
@@ -210,6 +217,17 @@ export default function CommentAutomationDetailPage() {
     } finally {
       setIsSubmitting(false);
     }
+  }
+
+  if (selectedAccount === null) {
+    return (
+      <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <SelectedAccountEmptyState
+          title="No active Instagram account"
+          description="Choose an active Instagram account from the sidebar before opening comment automation details."
+        />
+      </main>
+    );
   }
 
   function handleCancelEdit() {
@@ -319,6 +337,7 @@ export default function CommentAutomationDetailPage() {
                 }
                 onClick={() =>
                   void toggleAutomation({
+                    accountId: selectedAccount.id,
                     automationId,
                     status: nextToggleStatus,
                   })
@@ -346,7 +365,7 @@ export default function CommentAutomationDetailPage() {
         {/* Two-panel layout */}
         <div className="flex-1 flex min-h-0 overflow-hidden">
           {/* Left: Details */}
-          <div className="flex-1 overflow-y-auto px-8 py-8">
+          <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             <div className="max-w-xl flex flex-col gap-5">
               {/* Status + stats */}
               <div className="bg-card border border-border rounded-xl p-5 flex items-start justify-between gap-4">
@@ -666,9 +685,8 @@ export default function CommentAutomationDetailPage() {
                 followUpEnabled: automation.followUpEnabled,
                 followUpText: automation.followUpText,
                 validationIssues: automation.validationIssues,
-                username: accountStatus?.account?.username ?? undefined,
-                profilePictureUrl:
-                  accountStatus?.account?.profilePictureUrl ?? undefined,
+                username: selectedAccount.username ?? undefined,
+                profilePictureUrl: selectedAccount.profilePictureUrl ?? undefined,
                 selectedPostThumbnail:
                   automationSelectedMedia.length > 0
                     ? automationSelectedMedia[0].thumbnailUrl ||
@@ -726,7 +744,7 @@ export default function CommentAutomationDetailPage() {
       {/* Two-panel layout */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* Left panel: Form */}
-        <div className="flex-1 overflow-y-auto px-8 py-8">
+        <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           <div className="max-w-xl flex flex-col gap-8">
             {/* Automation name */}
             <div className="flex flex-col gap-1.5">
@@ -1210,9 +1228,8 @@ export default function CommentAutomationDetailPage() {
               followUpEnabled,
               followUpText,
               validationIssues: editValidationIssues,
-              username: accountStatus?.account?.username ?? undefined,
-              profilePictureUrl:
-                accountStatus?.account?.profilePictureUrl ?? undefined,
+              username: selectedAccount.username ?? undefined,
+              profilePictureUrl: selectedAccount.profilePictureUrl ?? undefined,
               selectedPostThumbnail:
                 selectedMedia.length > 0
                   ? selectedMedia[0].thumbnailUrl || selectedMedia[0].mediaUrl
@@ -1226,6 +1243,7 @@ export default function CommentAutomationDetailPage() {
 
       {/* Post picker modal */}
       <PostPickerModal
+        accountId={selectedAccount.id}
         open={showPostPicker}
         onOpenChange={setShowPostPicker}
         selectedMediaIds={selectedMediaIds}

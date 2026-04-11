@@ -256,10 +256,13 @@ describe("comment automation reliability", () => {
 
     const followGateDraft = await authT.mutation(
       api.automations.commentAutomations.createCommentAutomation,
-      buildCreateArgs({
+      {
+        accountId: fixture.instagramAccountId,
+        ...buildCreateArgs({
         followGateEnabled: true,
         goLive: false,
-      }),
+        }),
+      },
     );
     const storedFollowGateDraft = await t.run((ctx) =>
       ctx.db.get(followGateDraft.automationId),
@@ -268,13 +271,17 @@ describe("comment automation reliability", () => {
 
     const created = await authT.mutation(
       api.automations.commentAutomations.createCommentAutomation,
-      buildCreateArgs({
+      {
+        accountId: fixture.instagramAccountId,
+        ...buildCreateArgs({
         postScope: "any",
         goLive: true,
-      }),
+        }),
+      },
     );
 
     await authT.mutation(api.automations.commentAutomations.updateCommentAutomation, {
+      accountId: fixture.instagramAccountId,
       automationId: created.automationId,
       ...(() => {
         const createArgs = buildCreateArgs({
@@ -319,6 +326,7 @@ describe("comment automation reliability", () => {
     });
 
     await authT.mutation(api.automations.commentAutomations.toggleCommentAutomation, {
+      accountId: fixture.instagramAccountId,
       automationId: created.automationId,
       status: "paused",
     });
@@ -326,6 +334,7 @@ describe("comment automation reliability", () => {
     vi.setSystemTime(BASE_TIME + 5_000);
 
     await authT.mutation(api.automations.commentAutomations.toggleCommentAutomation, {
+      accountId: fixture.instagramAccountId,
       automationId: created.automationId,
       status: "live",
     });
@@ -343,11 +352,14 @@ describe("comment automation reliability", () => {
 
     const created = await authT.mutation(
       api.automations.commentAutomations.createCommentAutomation,
-      buildCreateArgs({
+      {
+        accountId: fixture.instagramAccountId,
+        ...buildCreateArgs({
         commentFilter: "specific_words",
         triggerKeywords: ["email", "link"],
         triggerKeywordLabels: ["Email", "Link"],
-      }),
+        }),
+      },
     );
 
     const storedAutomation = await t.run((ctx) => ctx.db.get(created.automationId));
@@ -356,7 +368,10 @@ describe("comment automation reliability", () => {
 
     const serializedAutomation = await authT.query(
       api.automations.commentAutomations.getCommentAutomationById,
-      { automationId: created.automationId },
+      {
+        accountId: fixture.instagramAccountId,
+        automationId: created.automationId,
+      },
     );
     expect(serializedAutomation?.triggerKeywords).toEqual(["email", "link"]);
     expect(serializedAutomation?.triggerKeywordLabels).toEqual([
@@ -822,7 +837,9 @@ describe("comment automation reliability", () => {
     );
     expect(deliveries).toHaveLength(8);
 
-    const logs = await authT.query(api.dashboard.listLogs, {});
+    const logs = await authT.query(api.dashboard.listLogs, {
+      accountId: fixture.instagramAccountId,
+    });
     expect(logs.some((entry) => entry.type === "comment_guardrail")).toBe(true);
   });
 });
