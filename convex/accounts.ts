@@ -1,4 +1,5 @@
 import {
+  action,
   internalMutation,
   internalQuery,
   mutation,
@@ -10,14 +11,23 @@ import { v } from "convex/values";
 import { Doc, Id } from "./_generated/dataModel";
 import {
   getCurrentWorkspace,
-  getWorkspaceInstagramAccount,
+  getSelectedWorkspaceInstagramAccount,
+  getWorkspaceInstagramAccountByExternalId,
+  getWorkspaceInstagramAccountById,
+  getWorkspaceUserPreference,
+  listWorkspaceInstagramAccounts,
+  pickFallbackSelectedAccount,
   requireCurrentUserId,
   requireCurrentWorkspace,
+  requireWorkspaceInstagramAccount,
 } from "./lib/auth";
 import {
   computeNextRefreshAt,
   computeRefreshRetryDelayMs,
+  isMetaAuthError,
+  parseMetaApiError,
 } from "./meta/authShared";
+import { META_GRAPH_API_VERSION } from "./meta/config";
 
 const nullableString = v.union(v.string(), v.null());
 const nullableNumber = v.union(v.number(), v.null());
@@ -30,6 +40,8 @@ const refreshReasonValidator = v.union(
   v.literal("auth_error"),
   v.literal("manual_reconnect"),
 );
+
+type SerializedAccount = ReturnType<typeof serializeAccount>;
 
 async function scheduleAccountRefresh(
   ctx: MutationCtx,
@@ -59,6 +71,53 @@ async function scheduleBlockedDeliveryReplay(
   });
 }
 
+async function upsertWorkspaceUserPreference(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    userId: Id<"users">;
+    selectedInstagramAccountId: Id<"instagramAccounts"> | null;
+  },
+) {
+  const preference = await getWorkspaceUserPreference(
+    ctx,
+    args.workspaceId,
+    args.userId,
+  );
+
+  if (preference === null) {
+    await ctx.db.insert("workspaceUserPreferences", args);
+    return;
+  }
+
+  await ctx.db.patch(preference._id, {
+    selectedInstagramAccountId: args.selectedInstagramAccountId,
+  });
+}
+
+async function syncWorkspaceSelectedAccountPreference(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    userId: Id<"users">;
+    preferredAccountId: Id<"instagramAccounts"> | null;
+  },
+) {
+  const accounts = await listWorkspaceInstagramAccounts(ctx, args.workspaceId);
+  const selectedAccount = pickFallbackSelectedAccount(
+    accounts,
+    args.preferredAccountId,
+  );
+
+  await upsertWorkspaceUserPreference(ctx, {
+    workspaceId: args.workspaceId,
+    userId: args.userId,
+    selectedInstagramAccountId: selectedAccount?._id ?? null,
+  });
+
+  return selectedAccount;
+}
+
 function serializeAccount(account: Doc<"instagramAccounts">) {
   return {
     id: account._id,
@@ -80,26 +139,231 @@ function serializeAccount(account: Doc<"instagramAccounts">) {
     lastError: account.lastError,
     connectedAt: account.connectedAt,
     disconnectedAt: account.disconnectedAt,
+    graphApiVersion: account.graphApiVersion,
   };
 }
 
-export const getCurrentAccountStatus = query({
+function filterAccountsBySearch<T extends SerializedAccount>(
+  accounts: T[],
+  search: string,
+): T[] {
+  const normalizedSearch = search.trim().toLowerCase();
+  if (!normalizedSearch) {
+    return accounts;
+  }
+
+  return accounts.filter((account) =>
+    [account.username, account.name, account.instagramAccountId]
+      .filter((value): value is string => typeof value === "string")
+      .some((value) => value.toLowerCase().includes(normalizedSearch)),
+  );
+}
+
+async function disconnectInstagramAccount(
+  ctx: MutationCtx,
+  account: Doc<"instagramAccounts">,
+  reason: string,
+) {
+  const disconnectedAt = Date.now();
+
+  await ctx.db.patch(account._id, {
+    status: "disconnected",
+    graphAccessToken: null,
+    webhookSubscriptionStatus: "disabled",
+    reconnectRequired: false,
+    lastRefreshAttemptAt: null,
+    nextRefreshAt: null,
+    refreshFailureCount: 0,
+    lastError: reason,
+    disconnectedAt,
+  });
+
+  await ctx.runMutation(
+    internal.meta.send.terminalizePendingDeliveriesForAccount,
+    {
+      accountId: account._id,
+      reason,
+    },
+  );
+
+  const activeEnrollments = await ctx.db
+    .query("sequenceEnrollments")
+    .withIndex("by_instagram_account_id_and_status", (q) =>
+      q.eq("instagramAccountId", account._id).eq("status", "active"),
+    )
+    .take(100);
+
+  for (const enrollment of activeEnrollments) {
+    await ctx.db.patch(enrollment._id, {
+      status: "stopped",
+      stopReason: "Instagram account disconnected",
+    });
+  }
+
+  return disconnectedAt;
+}
+
+async function fetchInstagramProfile(accessToken: string) {
+  const endpoint = new URL(
+    `https://graph.instagram.com/${META_GRAPH_API_VERSION}/me`,
+  );
+  endpoint.searchParams.set(
+    "fields",
+    "user_id,username,name,account_type,profile_picture_url",
+  );
+  endpoint.searchParams.set("access_token", accessToken);
+
+  const response = await fetch(endpoint);
+  const responseText = await response.text();
+  if (!response.ok) {
+    throw new Error(
+      responseText || "Failed to fetch Instagram account profile.",
+    );
+  }
+
+  const parsed = JSON.parse(responseText) as {
+    id?: string;
+    user_id?: string | number;
+    username?: string;
+    name?: string;
+    account_type?: string;
+    profile_picture_url?: string;
+  };
+  const instagramAccountId = String(parsed.user_id ?? parsed.id ?? "");
+  if (!instagramAccountId) {
+    throw new Error("Meta did not return an Instagram account identifier.");
+  }
+
+  return {
+    instagramAccountId,
+    username: parsed.username ?? null,
+    name: parsed.name ?? null,
+    profilePictureUrl: parsed.profile_picture_url ?? null,
+    accountType:
+      parsed.account_type === "BUSINESS"
+        ? ("business" as const)
+        : parsed.account_type === "CREATOR"
+          ? ("creator" as const)
+          : ("unknown" as const),
+  };
+}
+
+export const listWorkspaceAccounts = query({
+  args: { search: v.string() },
+  handler: async (ctx, args) => {
+    const [workspace, userId] = await Promise.all([
+      requireCurrentWorkspace(ctx),
+      requireCurrentUserId(ctx),
+    ]);
+    const [accounts, preference] = await Promise.all([
+      listWorkspaceInstagramAccounts(ctx, workspace._id),
+      getWorkspaceUserPreference(ctx, workspace._id, userId),
+    ]);
+    const selectedAccount = pickFallbackSelectedAccount(
+      accounts,
+      preference?.selectedInstagramAccountId ?? null,
+    );
+
+    return {
+      selectedAccountId: selectedAccount?._id ?? null,
+      accounts: filterAccountsBySearch(
+        accounts.map((account) => ({
+          ...serializeAccount(account),
+          isSelected: selectedAccount?._id === account._id,
+        })),
+        args.search,
+      ),
+    };
+  },
+});
+
+export const getSelectedAccountContext = query({
   args: {},
   handler: async (ctx) => {
-    const workspace = await getCurrentWorkspace(ctx);
+    const [workspace, userId] = await Promise.all([
+      getCurrentWorkspace(ctx),
+      requireCurrentUserId(ctx),
+    ]);
+
     if (workspace === null) {
       return {
         workspace: null,
-        account: null,
+        selectedAccount: null,
+        accounts: [] as Array<SerializedAccount & { isSelected: boolean }>,
+        totalAccounts: 0,
+        connectedAccounts: 0,
         isMetaConfigured: Boolean(
           process.env.META_APP_ID &&
-          process.env.META_APP_SECRET &&
-          process.env.META_VERIFY_TOKEN,
+            process.env.META_APP_SECRET &&
+            process.env.META_VERIFY_TOKEN,
         ),
       };
     }
 
-    const account = await getWorkspaceInstagramAccount(ctx, workspace._id);
+    const [accounts, preference] = await Promise.all([
+      listWorkspaceInstagramAccounts(ctx, workspace._id),
+      getWorkspaceUserPreference(ctx, workspace._id, userId),
+    ]);
+    const selectedAccount = pickFallbackSelectedAccount(
+      accounts,
+      preference?.selectedInstagramAccountId ?? null,
+    );
+
+    return {
+      workspace: {
+        id: workspace._id,
+        name: workspace.name,
+      },
+      selectedAccount:
+        selectedAccount === null ? null : serializeAccount(selectedAccount),
+      accounts: accounts.map((account) => ({
+        ...serializeAccount(account),
+        isSelected: selectedAccount?._id === account._id,
+      })),
+      totalAccounts: accounts.length,
+      connectedAccounts: accounts.filter(
+        (account) => account.status !== "disconnected",
+      ).length,
+      isMetaConfigured: Boolean(
+        process.env.META_APP_ID &&
+          process.env.META_APP_SECRET &&
+          process.env.META_VERIFY_TOKEN,
+      ),
+    };
+  },
+});
+
+export const getCurrentAccountStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    const [workspace, userId] = await Promise.all([
+      getCurrentWorkspace(ctx),
+      requireCurrentUserId(ctx),
+    ]);
+
+    if (workspace === null) {
+      return {
+        workspace: null,
+        account: null,
+        accounts: [] as Array<SerializedAccount & { isSelected: boolean }>,
+        totalAccounts: 0,
+        connectedAccounts: 0,
+        isMetaConfigured: Boolean(
+          process.env.META_APP_ID &&
+            process.env.META_APP_SECRET &&
+            process.env.META_VERIFY_TOKEN,
+        ),
+      };
+    }
+
+    const [accounts, preference] = await Promise.all([
+      listWorkspaceInstagramAccounts(ctx, workspace._id),
+      getWorkspaceUserPreference(ctx, workspace._id, userId),
+    ]);
+    const selectedAccount = pickFallbackSelectedAccount(
+      accounts,
+      preference?.selectedInstagramAccountId ?? null,
+    );
 
     return {
       workspace: {
@@ -107,13 +371,19 @@ export const getCurrentAccountStatus = query({
         name: workspace.name,
       },
       account:
-        account && account.status !== "disconnected"
-          ? serializeAccount(account)
-          : null,
+        selectedAccount === null ? null : serializeAccount(selectedAccount),
+      accounts: accounts.map((account) => ({
+        ...serializeAccount(account),
+        isSelected: selectedAccount?._id === account._id,
+      })),
+      totalAccounts: accounts.length,
+      connectedAccounts: accounts.filter(
+        (account) => account.status !== "disconnected",
+      ).length,
       isMetaConfigured: Boolean(
         process.env.META_APP_ID &&
-        process.env.META_APP_SECRET &&
-        process.env.META_VERIFY_TOKEN,
+          process.env.META_APP_SECRET &&
+          process.env.META_VERIFY_TOKEN,
       ),
     };
   },
@@ -144,51 +414,162 @@ export const createConnectSession = mutation({
   },
 });
 
+export const selectAccount = mutation({
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
+    const [workspace, userId] = await Promise.all([
+      requireCurrentWorkspace(ctx),
+      requireCurrentUserId(ctx),
+    ]);
+    const account = await requireWorkspaceInstagramAccount(
+      ctx,
+      workspace._id,
+      args.accountId,
+    );
+
+    if (account.status === "disconnected") {
+      throw new Error("Reconnect this Instagram account before selecting it.");
+    }
+
+    await upsertWorkspaceUserPreference(ctx, {
+      workspaceId: workspace._id,
+      userId,
+      selectedInstagramAccountId: account._id,
+    });
+
+    return { accountId: account._id };
+  },
+});
+
+export const disconnectAccount = mutation({
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
+    const [workspace, userId] = await Promise.all([
+      requireCurrentWorkspace(ctx),
+      requireCurrentUserId(ctx),
+    ]);
+    const account = await requireWorkspaceInstagramAccount(
+      ctx,
+      workspace._id,
+      args.accountId,
+    );
+
+    const reason =
+      "Instagram account was disconnected before the delivery could be sent.";
+    await disconnectInstagramAccount(ctx, account, reason);
+
+    const selectedAccount = await syncWorkspaceSelectedAccountPreference(ctx, {
+      workspaceId: workspace._id,
+      userId,
+      preferredAccountId: null,
+    });
+
+    return {
+      disconnected: true,
+      selectedAccountId: selectedAccount?._id ?? null,
+    };
+  },
+});
+
 export const disconnectCurrentAccount = mutation({
   args: {},
   handler: async (ctx) => {
-    const workspace = await requireCurrentWorkspace(ctx);
-    const account = await getWorkspaceInstagramAccount(ctx, workspace._id);
-    if (account === null) {
-      return { disconnected: false };
+    const [workspace, userId] = await Promise.all([
+      requireCurrentWorkspace(ctx),
+      requireCurrentUserId(ctx),
+    ]);
+    const selectedAccount = await getSelectedWorkspaceInstagramAccount(
+      ctx,
+      workspace._id,
+    );
+    if (selectedAccount === null) {
+      return { disconnected: false, selectedAccountId: null };
     }
 
-    await ctx.db.patch(account._id, {
-      status: "disconnected",
-      graphAccessToken: null,
-      webhookSubscriptionStatus: "disabled",
-      reconnectRequired: false,
-      lastRefreshAttemptAt: null,
-      nextRefreshAt: null,
-      refreshFailureCount: 0,
-      lastError: null,
-      disconnectedAt: Date.now(),
+    const reason =
+      "Instagram account was disconnected before the delivery could be sent.";
+    await disconnectInstagramAccount(ctx, selectedAccount, reason);
+
+    const fallbackAccount = await syncWorkspaceSelectedAccountPreference(ctx, {
+      workspaceId: workspace._id,
+      userId,
+      preferredAccountId: null,
     });
 
-    await ctx.runMutation(
-      internal.meta.send.terminalizePendingDeliveriesForAccount,
+    return {
+      disconnected: true,
+      selectedAccountId: fallbackAccount?._id ?? null,
+    };
+  },
+});
+
+export const refreshAccountProfile = action({
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
+    let account = await ctx.runQuery(
+      internal.accounts.getOwnedAccountWithToken,
       {
-        accountId: account._id,
-        reason:
-          "Instagram account was disconnected before the delivery could be sent.",
+        accountId: args.accountId,
       },
     );
-
-    const activeEnrollments = await ctx.db
-      .query("sequenceEnrollments")
-      .withIndex("by_workspace_id_and_status", (q) =>
-        q.eq("workspaceId", workspace._id).eq("status", "active"),
-      )
-      .take(100);
-
-    for (const enrollment of activeEnrollments) {
-      await ctx.db.patch(enrollment._id, {
-        status: "stopped",
-        stopReason: "Instagram account disconnected",
-      });
+    if (account === null || !account.graphAccessToken) {
+      throw new Error("No connected Instagram account with a valid token.");
     }
 
-    return { disconnected: true };
+    let profile: Awaited<ReturnType<typeof fetchInstagramProfile>>;
+    try {
+      profile = await fetchInstagramProfile(account.graphAccessToken);
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to refresh the Instagram profile.";
+      const parsedError = parseMetaApiError(
+        message,
+        "Failed to refresh the Instagram profile.",
+      );
+
+      if (!isMetaAuthError(parsedError)) {
+        throw error;
+      }
+
+      const refreshResult: { tokenUsable: boolean } = await ctx.runAction(
+        internal.meta.tokenLifecycle.refreshAccountToken,
+        {
+          accountId: account.id,
+          reason: "auth_error",
+        },
+      );
+
+      if (!refreshResult.tokenUsable) {
+        throw new Error(parsedError.message);
+      }
+
+      account = await ctx.runQuery(
+        internal.accounts.getOwnedAccountWithToken,
+        {
+          accountId: args.accountId,
+        },
+      );
+      if (account === null || !account.graphAccessToken) {
+        throw new Error(parsedError.message);
+      }
+
+      profile = await fetchInstagramProfile(account.graphAccessToken);
+    }
+
+    await ctx.runMutation(internal.accounts.patchAccountProfile, {
+      accountId: account.id,
+      profilePictureUrl: profile.profilePictureUrl,
+      username: profile.username,
+      name: profile.name,
+      accountType: profile.accountType,
+    });
+
+    return {
+      profilePictureUrl: profile.profilePictureUrl,
+      username: profile.username,
+    };
   },
 });
 
@@ -203,41 +584,17 @@ export const emergencyDisconnectAccount = internalMutation({
       return { disconnected: false };
     }
 
-    const disconnectedAt = Date.now();
+    const reason =
+      args.reason ??
+      "Instagram account was disconnected before the delivery could be sent.";
+    const disconnectedAt = await disconnectInstagramAccount(ctx, account, reason);
+    const workspace = await ctx.db.get(account.workspaceId);
 
-    await ctx.db.patch(account._id, {
-      status: "disconnected",
-      graphAccessToken: null,
-      webhookSubscriptionStatus: "disabled",
-      reconnectRequired: false,
-      lastRefreshAttemptAt: null,
-      nextRefreshAt: null,
-      refreshFailureCount: 0,
-      disconnectedAt,
-      lastError: args.reason ?? "Emergency disconnect triggered from CLI.",
-    });
-
-    await ctx.runMutation(
-      internal.meta.send.terminalizePendingDeliveriesForAccount,
-      {
-        accountId: account._id,
-        reason:
-          args.reason ??
-          "Instagram account was disconnected before the delivery could be sent.",
-      },
-    );
-
-    const activeEnrollments = await ctx.db
-      .query("sequenceEnrollments")
-      .withIndex("by_workspace_id_and_status", (q) =>
-        q.eq("workspaceId", account.workspaceId).eq("status", "active"),
-      )
-      .take(100);
-
-    for (const enrollment of activeEnrollments) {
-      await ctx.db.patch(enrollment._id, {
-        status: "stopped",
-        stopReason: args.reason ?? "Instagram account disconnected",
+    if (workspace !== null) {
+      await syncWorkspaceSelectedAccountPreference(ctx, {
+        workspaceId: account.workspaceId,
+        userId: workspace.ownerUserId,
+        preferredAccountId: null,
       });
     }
 
@@ -276,6 +633,15 @@ export const emergencyReconnectAccount = internalMutation({
       connectedAt,
       lastError: args.reason ?? null,
     });
+
+    const workspace = await ctx.db.get(account.workspaceId);
+    if (workspace !== null) {
+      await upsertWorkspaceUserPreference(ctx, {
+        workspaceId: account.workspaceId,
+        userId: workspace.ownerUserId,
+        selectedInstagramAccountId: account._id,
+      });
+    }
 
     await scheduleAccountRefresh(ctx, account._id, nextRefreshAt);
     await scheduleBlockedDeliveryReplay(ctx, account._id);
@@ -333,12 +699,11 @@ export const upsertConnectedAccount = internalMutation({
       throw new Error("Connection session not found.");
     }
 
-    const existingAccount = await ctx.db
-      .query("instagramAccounts")
-      .withIndex("by_workspace_id", (q) =>
-        q.eq("workspaceId", session.workspaceId),
-      )
-      .unique();
+    const existingAccount = await getWorkspaceInstagramAccountByExternalId(
+      ctx,
+      session.workspaceId,
+      args.instagramAccountId,
+    );
 
     const connectedAt = Date.now();
     const nextRefreshAt = computeNextRefreshAt(
@@ -384,6 +749,13 @@ export const upsertConnectedAccount = internalMutation({
       errorMessage: args.lastError,
     });
 
+    await upsertWorkspaceUserPreference(ctx, {
+      workspaceId: session.workspaceId,
+      userId: session.createdByUserId,
+      selectedInstagramAccountId:
+        args.status === "disconnected" ? null : accountId,
+    });
+
     if (args.status !== "disconnected") {
       await scheduleAccountRefresh(ctx, accountId, nextRefreshAt);
       await scheduleBlockedDeliveryReplay(ctx, accountId);
@@ -393,11 +765,15 @@ export const upsertConnectedAccount = internalMutation({
   },
 });
 
-export const getConnectedAccountWithToken = internalQuery({
-  args: {},
-  handler: async (ctx) => {
+export const getOwnedAccountWithToken = internalQuery({
+  args: { accountId: v.id("instagramAccounts") },
+  handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
-    const account = await getWorkspaceInstagramAccount(ctx, workspace._id);
+    const account = await getWorkspaceInstagramAccountById(
+      ctx,
+      workspace._id,
+      args.accountId,
+    );
     if (account === null || account.status === "disconnected") {
       return null;
     }
