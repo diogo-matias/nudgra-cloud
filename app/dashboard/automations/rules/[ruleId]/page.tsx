@@ -6,13 +6,33 @@ import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft, ToggleLeft, ToggleRight, Tag } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
+import { SelectedAccountEmptyState } from "@/components/dashboard/selected-account-empty-state";
 
 export default function RuleDetailPage() {
   const params = useParams<{ ruleId: string }>();
-  const rule = useQuery(api.automations.rules.getRuleById, {
-    ruleId: params.ruleId as Id<"automationRules">,
-  });
+  const accountContext = useQuery(api.accounts.getSelectedAccountContext);
+  const selectedAccount = accountContext?.selectedAccount ?? null;
+  const rule = useQuery(
+    api.automations.rules.getRuleById,
+    selectedAccount
+      ? {
+          accountId: selectedAccount.id,
+          ruleId: params.ruleId as Id<"automationRules">,
+        }
+      : "skip",
+  );
   const toggleRule = useMutation(api.automations.rules.toggleRule);
+
+  if (selectedAccount === null) {
+    return (
+      <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <SelectedAccountEmptyState
+          title="No active Instagram account"
+          description="Choose an active account from the sidebar before opening rule details."
+        />
+      </main>
+    );
+  }
 
   return (
     <main className="flex-1 px-8 py-10">
@@ -53,6 +73,7 @@ export default function RuleDetailPage() {
                 type="button"
                 onClick={() =>
                   void toggleRule({
+                    accountId: selectedAccount.id,
                     ruleId: rule.id,
                     isActive: !rule.isActive,
                   })

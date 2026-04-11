@@ -14,6 +14,7 @@ import {
 import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
 import { AutomationTypeModal } from "@/components/dashboard/automation-type-modal";
+import { SelectedAccountEmptyState } from "@/components/dashboard/selected-account-empty-state";
 import {
   formatCommentAutomationTimestamp,
   getCommentAutomationLatestSessionSummary,
@@ -21,14 +22,23 @@ import {
 
 export default function AutomationsPage() {
   const [showTypeModal, setShowTypeModal] = useState(false);
+  const accountContext = useQuery(api.accounts.getSelectedAccountContext);
+  const selectedAccount = accountContext?.selectedAccount ?? null;
 
   // Old keyword/DM rules
-  const rules = useQuery(api.automations.rules.listCurrentRules) ?? [];
+  const rules =
+    useQuery(
+      api.automations.rules.listCurrentRules,
+      selectedAccount ? { accountId: selectedAccount.id } : "skip",
+    ) ?? [];
   const toggleRule = useMutation(api.automations.rules.toggleRule);
 
   // New comment automations
   const commentAutomations =
-    useQuery(api.automations.commentAutomations.listCommentAutomations) ?? [];
+    useQuery(
+      api.automations.commentAutomations.listCommentAutomations,
+      selectedAccount ? { accountId: selectedAccount.id } : "skip",
+    ) ?? [];
   const toggleCommentAutomation = useMutation(
     api.automations.commentAutomations.toggleCommentAutomation,
   );
@@ -40,6 +50,17 @@ export default function AutomationsPage() {
   const totalActive = activeRulesCount + liveCommentCount;
   const totalCount = rules.length + commentAutomations.length;
 
+  if (selectedAccount === null) {
+    return (
+      <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <SelectedAccountEmptyState
+          title="No active Instagram account"
+          description="Choose an active account from the sidebar or connect a new one before managing automations."
+        />
+      </main>
+    );
+  }
+
   return (
     <main className="flex-1 px-8 py-10">
       <div className="max-w-4xl w-full flex flex-col gap-6">
@@ -50,7 +71,10 @@ export default function AutomationsPage() {
               Automations
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {totalActive} of {totalCount} automations active
+              {totalActive} of {totalCount} automations active for{" "}
+              {selectedAccount.username
+                ? `@${selectedAccount.username}`
+                : "the active account"}
             </p>
           </div>
           <button
@@ -203,6 +227,7 @@ export default function AutomationsPage() {
                     onClick={(event) => {
                       event.preventDefault();
                       void toggleCommentAutomation({
+                        accountId: selectedAccount.id,
                         automationId: automation.id,
                         status:
                           automation.status === "live" ? "paused" : "live",
@@ -302,6 +327,7 @@ export default function AutomationsPage() {
                     onClick={(event) => {
                       event.preventDefault();
                       void toggleRule({
+                        accountId: selectedAccount.id,
                         ruleId: rule.id,
                         isActive: !rule.isActive,
                       });

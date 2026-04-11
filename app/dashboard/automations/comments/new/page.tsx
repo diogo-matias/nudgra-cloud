@@ -26,17 +26,23 @@ import {
   getCommentAutomationFormValidationIssues,
   mergeCommentAutomationKeywords,
 } from "@/lib/comment-automation-ui";
+import { SelectedAccountEmptyState } from "@/components/dashboard/selected-account-empty-state";
 
 type PostScope = "specific" | "any" | "next";
 type CommentFilter = "specific_words" | "any_word";
 
 export default function NewCommentAutomationPage() {
   const router = useRouter();
+  const accountContext = useQuery(api.accounts.getSelectedAccountContext);
+  const selectedAccount = accountContext?.selectedAccount ?? null;
   const createAutomation = useMutation(
     api.automations.commentAutomations.createCommentAutomation,
   );
-  const accountStatus = useQuery(api.accounts.getCurrentAccountStatus);
-  const media = useQuery(api.meta.mediaQueries.listCachedMedia) ?? [];
+  const media =
+    useQuery(
+      api.meta.mediaQueries.listCachedMedia,
+      selectedAccount ? { accountId: selectedAccount.id } : "skip",
+    ) ?? [];
 
   // General
   const [name, setName] = useState("");
@@ -156,6 +162,7 @@ export default function NewCommentAutomationPage() {
     try {
       const primaryLink = linkButtons[0] ?? null;
       const result = await createAutomation({
+        accountId: selectedAccount!.id,
         name,
         postScope,
         selectedMediaIds,
@@ -192,6 +199,17 @@ export default function NewCommentAutomationPage() {
     }
   }
 
+  if (selectedAccount === null) {
+    return (
+      <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <SelectedAccountEmptyState
+          title="No active Instagram account"
+          description="Choose an active Instagram account from the sidebar before creating a comment automation."
+        />
+      </main>
+    );
+  }
+
   return (
     <main className="flex-1 flex flex-col min-h-0">
       {/* Top bar */}
@@ -206,10 +224,10 @@ export default function NewCommentAutomationPage() {
               Automations
             </Link>
             <span className="text-border">/</span>
-            <span className="text-sm font-medium text-foreground">
-              New comment automation
-            </span>
-          </div>
+              <span className="text-sm font-medium text-foreground">
+                New comment automation
+              </span>
+            </div>
 
           <div className="flex items-center gap-2">
             <button
@@ -235,7 +253,7 @@ export default function NewCommentAutomationPage() {
       {/* Two-panel layout */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         {/* Left panel: Form */}
-        <div className="flex-1 overflow-y-auto px-8 py-8">
+        <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
           <div className="max-w-xl flex flex-col gap-8">
             {/* Automation name */}
             <div className="flex flex-col gap-1.5">
@@ -727,9 +745,8 @@ export default function NewCommentAutomationPage() {
               followUpEnabled,
               followUpText,
               validationIssues,
-              username: accountStatus?.account?.username ?? undefined,
-              profilePictureUrl:
-                accountStatus?.account?.profilePictureUrl ?? undefined,
+              username: selectedAccount.username ?? undefined,
+              profilePictureUrl: selectedAccount.profilePictureUrl ?? undefined,
               selectedPostThumbnail:
                 selectedMedia.length > 0
                   ? selectedMedia[0].thumbnailUrl || selectedMedia[0].mediaUrl
@@ -743,6 +760,7 @@ export default function NewCommentAutomationPage() {
 
       {/* Post picker modal */}
       <PostPickerModal
+        accountId={selectedAccount.id}
         open={showPostPicker}
         onOpenChange={setShowPostPicker}
         selectedMediaIds={selectedMediaIds}

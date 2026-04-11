@@ -16,6 +16,7 @@ import {
   formatDateTime,
   formatRelativeTime,
 } from "@/lib/dashboard-formatters";
+import { SelectedAccountEmptyState } from "@/components/dashboard/selected-account-empty-state";
 
 type ContactListItem = NonNullable<
   ReturnType<typeof useQuery<typeof api.contacts.listContacts>>
@@ -66,6 +67,8 @@ function automationKindLabel(kind: "rule" | "comment_automation" | "sequence") {
 }
 
 export default function ContactsPage() {
+  const accountContext = useQuery(api.accounts.getSelectedAccountContext);
+  const selectedAccount = accountContext?.selectedAccount ?? null;
   const [search, setSearch] = useState("");
   const [selectedAutomation, setSelectedAutomation] = useState("all");
   const [selectedContact, setSelectedContact] = useState<ContactListItem | null>(null);
@@ -75,14 +78,24 @@ export default function ContactsPage() {
     api.contacts.requestContactProfileRefresh,
   );
 
-  const automationFilters = useQuery(api.contacts.listAutomationFilters) ?? {
-    rules: [],
-    commentAutomations: [],
-    sequences: [],
-  };
-  const contactsQuery = useQuery(api.contacts.listContacts, {
-    automationFilter: parseAutomationFilter(selectedAutomation),
-  });
+  const automationFilters =
+    useQuery(
+      api.contacts.listAutomationFilters,
+      selectedAccount ? { accountId: selectedAccount.id } : "skip",
+    ) ?? {
+      rules: [],
+      commentAutomations: [],
+      sequences: [],
+    };
+  const contactsQuery = useQuery(
+    api.contacts.listContacts,
+    selectedAccount
+      ? {
+          accountId: selectedAccount.id,
+          automationFilter: parseAutomationFilter(selectedAutomation),
+        }
+      : "skip",
+  );
 
   const filteredContacts = useMemo(() => {
     const source = contactsQuery ?? [];
@@ -114,12 +127,26 @@ export default function ContactsPage() {
 
     for (const contact of missingProfiles) {
       requestedRefreshIdsRef.current.add(contact.id);
-      void requestContactProfileRefresh({ contactId: contact.id });
+      void requestContactProfileRefresh({
+        accountId: selectedAccount!.id,
+        contactId: contact.id,
+      });
     }
-  }, [contactsQuery, requestContactProfileRefresh]);
+  }, [contactsQuery, requestContactProfileRefresh, selectedAccount]);
+
+  if (selectedAccount === null) {
+    return (
+      <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        <SelectedAccountEmptyState
+          title="No active Instagram account"
+          description="Choose an active Instagram account from the sidebar before opening contacts."
+        />
+      </main>
+    );
+  }
 
   return (
-    <main className="flex-1 px-8 py-8">
+    <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
         <header className="flex flex-col gap-2">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground">
@@ -308,6 +335,7 @@ export default function ContactsPage() {
       </div>
 
       <ContactDetailDialog
+        accountId={selectedAccount.id}
         contact={selectedContact}
         open={dialogOpen}
         onOpenChange={setDialogOpen}
