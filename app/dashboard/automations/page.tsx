@@ -22,7 +22,7 @@ export default function AutomationsPage() {
   const accountContext = useQuery(api.accounts.getSelectedAccountContext);
   const selectedAccount = accountContext?.selectedAccount ?? null;
 
-  // Old keyword/DM rules
+  // Keyword DM rules
   const rules =
     useQuery(
       api.automations.rules.listCurrentRules,
@@ -274,7 +274,7 @@ export default function AutomationsPage() {
               );
             })}
 
-            {/* Old keyword/DM rules */}
+            {/* Keyword DM rules */}
             {rules.map((rule, index) => (
               <Link
                 key={rule.id}
@@ -317,14 +317,20 @@ export default function AutomationsPage() {
                         {rule.name}
                       </p>
                       <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground bg-muted border border-border rounded px-1.5 py-0.5">
-                        DM Rule
+                        DM automation
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground truncate max-w-md">
                       {rule.keywords.length > 0
                         ? `Keyword trigger: ${rule.keywords.slice(0, 3).map((k) => `"${k}"`).join(", ")}${rule.keywords.length > 3 ? ` +${rule.keywords.length - 3}` : ""}`
                         : `Trigger: ${rule.triggerType.replace("_", " ")}`}
-                      {" \u00B7 "}Reply: &quot;{rule.replyText.length > 50 ? rule.replyText.slice(0, 50) + "..." : rule.replyText}&quot;
+                      {" \u00B7 "}DM: &quot;
+                      {(
+                        rule.linkDmText.length > 50
+                          ? rule.linkDmText.slice(0, 50) + "..."
+                          : rule.linkDmText
+                      ) || "No message"}
+                      &quot;
                     </p>
                     {/* Mobile stats */}
                     <div className="flex items-center gap-3 sm:hidden text-xs text-muted-foreground mt-0.5">
@@ -348,7 +354,7 @@ export default function AutomationsPage() {
 
                 {/* Modified */}
                 <p className="text-xs text-muted-foreground text-right hidden sm:block">
-                  {formatRelativeTime(rule.createdAt)}
+                  {formatRelativeTime(rule.lastModifiedAt)}
                 </p>
 
                 {/* Toggle */}

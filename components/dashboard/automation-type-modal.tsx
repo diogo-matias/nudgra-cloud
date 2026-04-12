@@ -7,7 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { MessageSquare, BookOpen } from "lucide-react";
+import { MessageSquare, BookOpen, Send } from "lucide-react";
 
 type AutomationType = {
   id: string;
@@ -26,6 +26,15 @@ const AUTOMATION_TYPES: AutomationType[] = [
       "When someone comments a keyword on your post, automatically DM them a link, collect their email, and grow your audience.",
     icon: MessageSquare,
     href: "/dashboard/automations/comments/new",
+    available: true,
+  },
+  {
+    id: "keyword-dm",
+    title: "When someone DMs you",
+    description:
+      "Reply to keyword DMs with tracked links, optional follow gates, email capture, and re-engagement follow-ups.",
+    icon: Send,
+    href: "/dashboard/automations/rules/new",
     available: true,
   },
   {
