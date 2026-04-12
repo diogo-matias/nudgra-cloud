@@ -7,7 +7,10 @@ import {
   matchesAutomationRule,
 } from "../automations/shared";
 import { advanceCommentAutomationSession } from "../automations/commentFlow";
-import { queueAutomatedTextReply } from "./sendHelpers";
+import {
+  advanceRuleAutomationSession,
+  startRuleAutomationSession,
+} from "../automations/ruleFlow";
 import { Id } from "../_generated/dataModel";
 
 type MessagingItem = {
@@ -527,15 +530,70 @@ export const ingestWebhookPayload = internalMutation({
         });
       }
 
-      const activeRules = await ctx.db
-        .query("automationRules")
-        .withIndex("by_instagram_account_id_and_is_active", (q) =>
-          q.eq("instagramAccountId", account._id).eq("isActive", true),
-        )
-        .take(50);
+      const inboundInteraction = {
+        hasMessage,
+        text: rawText,
+        postbackPayload:
+          typeof item.postback?.payload === "string"
+            ? item.postback.payload.trim()
+            : null,
+        quickReplyPayload:
+          typeof item.message?.quick_reply?.payload === "string"
+            ? item.message.quick_reply.payload.trim()
+            : null,
+        deliveryKey,
+      };
+
+      const activeRuleSession = !isEcho
+        ? (
+            await ctx.db
+              .query("automationRuleSessions")
+              .withIndex("by_conversation_id", (q) =>
+                q.eq("conversationId", conversationId),
+              )
+              .order("desc")
+              .take(10)
+          ).find(
+            (session) =>
+              session.currentStep !== "completed" &&
+              session.currentStep !== "link_sent" &&
+              session.currentStep !== "guardrail_tripped",
+          )
+        : null;
+
+      if (activeRuleSession) {
+        const sessionRule = await ctx.db.get(activeRuleSession.automationRuleId);
+
+        if (sessionRule?.followGateEnabled) {
+          await ctx.scheduler.runAfter(
+            0,
+            internal.automations.ruleFlow.processInboundRuleAutomationInteraction,
+            {
+              sessionId: activeRuleSession._id,
+              ...inboundInteraction,
+            },
+          );
+        } else {
+          await advanceRuleAutomationSession(ctx, activeRuleSession._id, {
+            hasMessage: inboundInteraction.hasMessage,
+            text: inboundInteraction.text,
+            postbackPayload: inboundInteraction.postbackPayload,
+            quickReplyPayload: inboundInteraction.quickReplyPayload,
+          });
+        }
+      }
+
+      const activeRules = !activeRuleSession
+        ? await ctx.db
+            .query("automationRules")
+            .withIndex("by_instagram_account_id_and_is_active", (q) =>
+              q.eq("instagramAccountId", account._id).eq("isActive", true),
+            )
+            .take(50)
+        : [];
 
       const matchedRule =
-        !isEcho && !isPostback && !isQuickReply
+        !isEcho && !isPostback && !isQuickReply && !activeRuleSession
           ? activeRules.find((rule) =>
               matchesAutomationRule({
                 triggerType: rule.triggerType,
@@ -548,28 +606,9 @@ export const ingestWebhookPayload = internalMutation({
           : undefined;
 
       if (matchedRule) {
-        await ctx.db.patch(matchedRule._id, {
-          triggerCount: matchedRule.triggerCount + 1,
-          lastTriggeredAt: messageTime,
-        });
-
         await ctx.db.patch(conversationId, {
           lastAutomationRuleId: matchedRule._id,
         });
-
-        await ctx.runMutation(
-          internal.contacts.upsertContactAutomationMembership,
-          {
-            workspaceId: account.workspaceId,
-            contactId,
-            conversationId,
-            automationKind: "rule",
-            automationRuleId: matchedRule._id,
-            commentAutomationId: null,
-            sequenceDefinitionId: null,
-            matchedAt: messageTime,
-          },
-        );
 
         for (const tagId of matchedRule.tagIds) {
           const existingContactTag = await ctx.db
@@ -590,17 +629,14 @@ export const ingestWebhookPayload = internalMutation({
           }
         }
 
-        if (matchedRule.replyText.trim()) {
-          await queueAutomatedTextReply(ctx, {
-            workspaceId: account.workspaceId,
-            instagramAccountId: account._id,
-            conversationId,
-            contactId,
-            messageText: matchedRule.replyText.trim(),
-            automationRuleId: matchedRule._id,
-            sequenceEnrollmentId: null,
-          });
-        }
+        await startRuleAutomationSession(ctx, matchedRule, {
+          workspaceId: account.workspaceId,
+          instagramAccountId: account._id,
+          automationRuleId: matchedRule._id,
+          contactId,
+          conversationId,
+          matchedAt: messageTime,
+        });
 
         if (matchedRule.sequenceDefinitionId !== null) {
           await createSequenceEnrollment(ctx, {
@@ -614,7 +650,7 @@ export const ingestWebhookPayload = internalMutation({
       }
 
       // Check for active comment automation sessions and advance them
-      if (!matchedRule && !isEcho) {
+      if (!matchedRule && !activeRuleSession && !isEcho) {
         const recentSessions = await ctx.db
           .query("commentAutomationSessions")
           .withIndex("by_conversation_id", (q) =>
@@ -630,19 +666,6 @@ export const ingestWebhookPayload = internalMutation({
         );
 
         if (activeSession) {
-          const inboundInteraction = {
-            hasMessage,
-            text: rawText,
-            postbackPayload:
-              typeof item.postback?.payload === "string"
-                ? item.postback.payload.trim()
-                : null,
-            quickReplyPayload:
-              typeof item.message?.quick_reply?.payload === "string"
-                ? item.message.quick_reply.payload.trim()
-                : null,
-            deliveryKey,
-          };
           const sessionAutomation = await ctx.db.get(
             activeSession.commentAutomationId,
           );

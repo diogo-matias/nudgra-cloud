@@ -205,13 +205,23 @@ export default defineSchema({
     triggerType: v.union(v.literal("keyword"), v.literal("story_reply")),
     matchType: v.union(v.literal("contains"), v.literal("exact")),
     keywords: v.array(v.string()),
+    // Deprecated compatibility mirror of the primary DM text.
     replyText: v.string(),
+    linkDmText: v.optional(v.string()),
+    linkButtons: v.optional(v.array(linkButtonValidator)),
+    followGateEnabled: v.optional(v.boolean()),
+    followGateText: v.optional(v.string()),
+    emailCollectionEnabled: v.optional(v.boolean()),
+    emailCollectionText: v.optional(v.string()),
+    followUpEnabled: v.optional(v.boolean()),
+    followUpText: v.optional(v.string()),
     isActive: v.boolean(),
     tagIds: v.array(v.id("tags")),
     sequenceDefinitionId: nullableSequenceDefinitionId,
     createdByUserId: v.id("users"),
     triggerCount: v.number(),
     lastTriggeredAt: nullableNumber,
+    lastModifiedAt: v.optional(nullableNumber),
   })
     .index("by_workspace_id", ["workspaceId"])
     .index("by_workspace_id_and_is_active", ["workspaceId", "isActive"])
@@ -487,6 +497,61 @@ export default defineSchema({
     instagramAccountId: v.id("instagramAccounts"),
     commentAutomationId: nullableCommentAutomationId,
     sessionId: v.id("commentAutomationSessions"),
+    token: v.string(),
+    destinationUrl: v.string(),
+    label: v.string(),
+    buttonIndex: v.number(),
+    clickedAt: nullableNumber,
+    createdAt: v.number(),
+  })
+    .index("by_token", ["token"])
+    .index("by_session_id", ["sessionId"]),
+  automationRuleSessions: defineTable({
+    workspaceId: v.id("workspaces"),
+    automationRuleId: v.id("automationRules"),
+    contactId: v.id("contacts"),
+    conversationId: v.id("conversations"),
+    instagramAccountId: v.id("instagramAccounts"),
+    currentStep: v.union(
+      v.literal("follow_gate_sent"),
+      v.literal("awaiting_follow"),
+      v.literal("email_requested"),
+      v.literal("awaiting_email"),
+      v.literal("link_sent"),
+      v.literal("guardrail_tripped"),
+      v.literal("completed"),
+    ),
+    collectedEmail: nullableString,
+    startedAt: v.number(),
+    lastStepAt: v.number(),
+    outboundMessageCount: v.optional(v.number()),
+    followGateInputMode: v.optional(
+      v.union(v.literal("button"), v.literal("reply"), v.null()),
+    ),
+    lastInboundDeliveryKey: v.optional(nullableString),
+    guardrailTrippedAt: v.optional(nullableNumber),
+    guardrailReason: v.optional(nullableString),
+    linkSentAt: v.optional(nullableNumber),
+    linkClickedAt: v.optional(nullableNumber),
+    followUpScheduledAt: v.optional(nullableNumber),
+    followUpSentAt: v.optional(nullableNumber),
+  })
+    .index("by_automation_rule_id", ["automationRuleId"])
+    .index("by_contact_id_and_automation_rule_id", [
+      "contactId",
+      "automationRuleId",
+    ])
+    .index("by_conversation_id", ["conversationId"])
+    .index("by_workspace_id_and_last_step_at", ["workspaceId", "lastStepAt"])
+    .index("by_instagram_account_id_and_last_step_at", [
+      "instagramAccountId",
+      "lastStepAt",
+    ]),
+  automationRuleTrackedLinks: defineTable({
+    workspaceId: v.id("workspaces"),
+    instagramAccountId: v.id("instagramAccounts"),
+    automationRuleId: nullableAutomationRuleId,
+    sessionId: v.id("automationRuleSessions"),
     token: v.string(),
     destinationUrl: v.string(),
     label: v.string(),
