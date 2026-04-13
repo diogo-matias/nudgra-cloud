@@ -21,13 +21,6 @@ type TagOption = {
   color: string;
 };
 
-type SequenceOption = {
-  id: Id<"sequenceDefinitions">;
-  name: string;
-  isActive: boolean;
-  stepCount: number;
-};
-
 type RuleAutomationFormProps = {
   name: string;
   onNameChange: (value: string) => void;
@@ -54,11 +47,6 @@ type RuleAutomationFormProps = {
   tagOptions: TagOption[];
   selectedTagIds: Id<"tags">[];
   onSelectedTagIdsChange: (tagIds: Id<"tags">[]) => void;
-  sequenceOptions: SequenceOption[];
-  selectedSequenceId: Id<"sequenceDefinitions"> | null;
-  onSelectedSequenceIdChange: (
-    sequenceId: Id<"sequenceDefinitions"> | null,
-  ) => void;
   isActive?: boolean;
   onIsActiveChange?: (value: boolean) => void;
   showStatusToggle?: boolean;
@@ -345,33 +333,6 @@ export function RuleAutomationForm(props: RuleAutomationFormProps) {
                   );
                 })}
               </div>
-            </div>
-
-            <div className="rounded-2xl border border-border bg-card p-4">
-              <p className="text-sm font-medium text-foreground">
-                Follow-up sequence
-              </p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Optionally enroll the contact into one delayed sequence on match.
-              </p>
-              <select
-                value={props.selectedSequenceId ?? ""}
-                onChange={(event) =>
-                  props.onSelectedSequenceIdChange(
-                    event.target.value
-                      ? (event.target.value as Id<"sequenceDefinitions">)
-                      : null,
-                  )
-                }
-                className="mt-3 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring/50"
-              >
-                <option value="">No sequence</option>
-                {props.sequenceOptions.map((sequence) => (
-                  <option key={sequence.id} value={sequence.id}>
-                    {sequence.name} ({sequence.stepCount} steps)
-                  </option>
-                ))}
-              </select>
             </div>
 
             {props.showStatusToggle === false ? null : (

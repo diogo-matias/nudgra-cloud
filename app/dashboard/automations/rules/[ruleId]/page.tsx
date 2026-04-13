@@ -60,8 +60,6 @@ export default function RuleDetailPage() {
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
   const [followUpText, setFollowUpText] = useState("");
   const [selectedTagIds, setSelectedTagIds] = useState<Id<"tags">[]>([]);
-  const [selectedSequenceId, setSelectedSequenceId] =
-    useState<Id<"sequenceDefinitions"> | null>(null);
   const [isActive, setIsActive] = useState(true);
   const [initialized, setInitialized] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -82,7 +80,6 @@ export default function RuleDetailPage() {
       setFollowUpEnabled(rule.followUpEnabled);
       setFollowUpText(rule.followUpText);
       setSelectedTagIds(rule.tags.map((tag) => tag.id));
-      setSelectedSequenceId(rule.sequence?.id ?? null);
       setIsActive(rule.isActive);
       setInitialized(true);
     }
@@ -134,7 +131,7 @@ export default function RuleDetailPage() {
         followUpText,
         isActive,
         tagIds: selectedTagIds,
-        sequenceDefinitionId: selectedSequenceId,
+        sequenceDefinitionId: rule.sequence?.id ?? null,
       });
 
       setIsEditing(false);
@@ -163,7 +160,6 @@ export default function RuleDetailPage() {
       setFollowUpEnabled(rule.followUpEnabled);
       setFollowUpText(rule.followUpText);
       setSelectedTagIds(rule.tags.map((tag) => tag.id));
-      setSelectedSequenceId(rule.sequence?.id ?? null);
       setIsActive(rule.isActive);
     }
     setSubmissionError(null);
@@ -276,9 +272,6 @@ export default function RuleDetailPage() {
           tagOptions={options?.tags ?? []}
           selectedTagIds={selectedTagIds}
           onSelectedTagIdsChange={setSelectedTagIds}
-          sequenceOptions={options?.sequences ?? []}
-          selectedSequenceId={selectedSequenceId}
-          onSelectedSequenceIdChange={setSelectedSequenceId}
           isActive={isActive}
           onIsActiveChange={setIsActive}
           validationIssues={validationIssues}
@@ -500,11 +493,6 @@ export default function RuleDetailPage() {
                   <p className="text-sm text-foreground">No tags applied.</p>
                 )}
               </div>
-
-              <DetailRow
-                label="Sequence"
-                value={rule.sequence ? rule.sequence.name : "No sequence"}
-              />
             </div>
           </DetailCard>
         </div>

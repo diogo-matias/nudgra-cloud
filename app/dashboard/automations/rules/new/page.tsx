@@ -44,8 +44,6 @@ export default function NewRulePage() {
     "Just checking in - did you get the link?",
   );
   const [selectedTagIds, setSelectedTagIds] = useState<Id<"tags">[]>([]);
-  const [selectedSequenceId, setSelectedSequenceId] =
-    useState<Id<"sequenceDefinitions"> | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
 
@@ -89,7 +87,7 @@ export default function NewRulePage() {
         followUpText,
         isActive: goLive,
         tagIds: selectedTagIds,
-        sequenceDefinitionId: selectedSequenceId,
+        sequenceDefinitionId: null,
       });
 
       router.push(`/dashboard/automations/rules/${result.ruleId}`);
@@ -185,9 +183,6 @@ export default function NewRulePage() {
         tagOptions={options?.tags ?? []}
         selectedTagIds={selectedTagIds}
         onSelectedTagIdsChange={setSelectedTagIds}
-        sequenceOptions={options?.sequences ?? []}
-        selectedSequenceId={selectedSequenceId}
-        onSelectedSequenceIdChange={setSelectedSequenceId}
         showStatusToggle={false}
         validationIssues={validationIssues}
         submissionError={submissionError}
