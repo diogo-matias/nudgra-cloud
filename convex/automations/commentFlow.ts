@@ -448,6 +448,7 @@ export async function startCommentAutomationSession(
     automationKind: "comment_automation",
     automationRuleId: null,
     commentAutomationId: args.commentAutomationId,
+    storyAutomationId: null,
     sequenceDefinitionId: null,
     matchedAt: now,
   });

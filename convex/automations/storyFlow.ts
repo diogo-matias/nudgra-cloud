@@ -12,6 +12,7 @@ import { META_GRAPH_API_VERSION, requireSiteUrl } from "../meta/config";
 import {
   type AutomatedButton,
   queueAutomatedButtonTemplate,
+  queueAutomatedStoryReaction,
   queueAutomatedTextReply,
 } from "../meta/sendHelpers";
 import {
@@ -21,36 +22,50 @@ import {
 } from "../meta/authShared";
 import {
   extractEmail,
-  getAutomationRuleValidationIssues,
-  getEffectiveRuleLinkDmText,
-  RULE_DEFAULT_FOLLOW_GATE_MESSAGE,
-  RULE_DEFAULT_LINK_BATCH_MESSAGE,
-  RULE_DEFAULT_LINK_MESSAGE,
-  RULE_FOLLOW_GATE_BUTTON_TEXT,
-  RULE_FOLLOW_GATE_CONSENT_MESSAGE,
-  RULE_FOLLOW_UP_DELAY_MS,
-  RULE_INVALID_EMAIL_PROMPT,
-} from "./ruleShared";
+  getEffectiveStoryLinkDmText,
+  getStoryAutomationValidationIssues as getSharedStoryAutomationValidationIssues,
+  STORY_DEFAULT_FOLLOW_GATE_MESSAGE,
+  STORY_DEFAULT_LINK_BATCH_MESSAGE,
+  STORY_DEFAULT_LINK_MESSAGE,
+  STORY_FOLLOW_GATE_BUTTON_TEXT,
+  STORY_FOLLOW_GATE_CONSENT_MESSAGE,
+  STORY_FOLLOW_UP_DELAY_MS,
+  STORY_INVALID_EMAIL_PROMPT,
+  STORY_REACTION_EMOJI,
+} from "./storyShared";
 
-type RuleAutomation = Doc<"automationRules">;
+type StoryAutomation = Doc<"storyAutomations">;
 type WebUrlButton = Extract<AutomatedButton, { type: "web_url" }>;
-type RuleAutomationLike = Pick<
-  RuleAutomation,
-  | "triggerType"
-  | "keywords"
-  | "replyText"
-  | "linkDmText"
-  | "linkButtons"
+type StoryAutomationLike = Pick<
+  StoryAutomation,
+  | "status"
+  | "storyScope"
+  | "selectedStoryId"
+  | "selectedStoryPermalink"
+  | "selectedStoryExpiredAt"
+  | "replyFilter"
+  | "triggerTokens"
+  | "reactionEnabled"
+  | "followGateEnabled"
   | "followUpEnabled"
->;
+  | "linkButtons"
+  | "linkUrl"
+  | "linkButtonText"
+> & {
+  linkDmText?: string;
+};
 
 type StartSessionArgs = {
   workspaceId: Id<"workspaces">;
   instagramAccountId: Id<"instagramAccounts">;
-  automationRuleId: Id<"automationRules">;
+  storyAutomationId: Id<"storyAutomations">;
   contactId: Id<"contacts">;
   conversationId: Id<"conversations">;
   matchedAt: number;
+  triggerMessageId: string | null;
+  storyId: string | null;
+  storyUrl: string | null;
+  storyToken: string | null;
 };
 
 type AdvanceSessionInput = {
@@ -63,9 +78,9 @@ type AdvanceSessionInput = {
 type FollowGateCheckStatus = "following" | "not_following" | "consent_required";
 type FollowGateInputMode = "button" | "reply";
 
-const RULE_AUTOMATION_SESSION_MESSAGE_LIMIT = 8;
-const RULE_AUTOMATION_CONVERSATION_MESSAGE_LIMIT = 10;
-const FOLLOW_GATE_POSTBACK_PAYLOAD = "rule_automation:follow_gate";
+const STORY_AUTOMATION_SESSION_MESSAGE_LIMIT = 8;
+const STORY_AUTOMATION_CONVERSATION_MESSAGE_LIMIT = 10;
+const FOLLOW_GATE_POSTBACK_PAYLOAD = "story_automation:follow_gate";
 
 function getFollowGateInputMode(consentRequired: boolean): FollowGateInputMode {
   return consentRequired ? "reply" : "button";
@@ -80,7 +95,7 @@ function hasInboundInteraction(inbound: AdvanceSessionInput) {
 }
 
 function matchesFollowGateInteraction(
-  session: Pick<Doc<"automationRuleSessions">, "followGateInputMode">,
+  session: Pick<Doc<"storyAutomationSessions">, "followGateInputMode">,
   inbound: AdvanceSessionInput,
 ) {
   const inputMode = session.followGateInputMode ?? "button";
@@ -93,7 +108,7 @@ function matchesFollowGateInteraction(
 }
 
 function isTerminalSessionStep(
-  step: Doc<"automationRuleSessions">["currentStep"],
+  step: Doc<"storyAutomationSessions">["currentStep"],
 ) {
   return (
     step === "completed" || step === "link_sent" || step === "guardrail_tripped"
@@ -105,28 +120,70 @@ function buildGuardrailReason(args: {
   limit: number;
   purpose: string;
 }) {
-  return `Safety guardrail stopped this DM automation after ${args.limit} outbound DM${args.limit === 1 ? "" : "s"} in the same ${args.limitType} while sending ${args.purpose}.`;
+  return `Safety guardrail paused this story automation after ${args.limit} outbound DM${args.limit === 1 ? "" : "s"} in the same ${args.limitType} while sending ${args.purpose}.`;
 }
 
-function getRuleAutomationValidationIssues(
-  automation: RuleAutomationLike,
+function getLinkButtons(
+  automation: Pick<
+    StoryAutomationLike,
+    "linkButtons" | "linkUrl" | "linkButtonText"
+  >,
+): WebUrlButton[] {
+  if (automation.linkButtons && automation.linkButtons.length > 0) {
+    return automation.linkButtons.map((button) => ({
+      type: "web_url" as const,
+      title: button.label.trim(),
+      url: button.url.trim(),
+    }));
+  }
+
+  if (automation.linkUrl.trim()) {
+    return [
+      {
+        type: "web_url" as const,
+        title: (automation.linkButtonText ?? "Open link").trim() || "Open link",
+        url: automation.linkUrl.trim(),
+      },
+    ];
+  }
+
+  return [];
+}
+
+export function getStoryAutomationValidationIssues(
+  automation: StoryAutomationLike,
 ) {
-  return getAutomationRuleValidationIssues({
-    triggerType: automation.triggerType,
-    keywords: automation.keywords,
-    replyText: automation.replyText,
-    linkDmText: automation.linkDmText,
-    linkButtons: automation.linkButtons ?? [],
+  const validationLinkButtons =
+    automation.linkButtons && automation.linkButtons.length > 0
+      ? automation.linkButtons
+      : automation.linkUrl.trim()
+        ? [
+            {
+              label:
+                (automation.linkButtonText ?? "Open link").trim() || "Open link",
+              url: automation.linkUrl.trim(),
+            },
+          ]
+        : [];
+
+  return getSharedStoryAutomationValidationIssues({
+    storyScope: automation.storyScope,
+    selectedStoryId: automation.selectedStoryId,
+    selectedStoryExpiredAt: automation.selectedStoryExpiredAt ?? null,
+    replyFilter: automation.replyFilter,
+    triggerTokens: automation.triggerTokens,
+    linkDmText: automation.linkDmText ?? "",
+    linkButtons: validationLinkButtons,
     followUpEnabled: automation.followUpEnabled ?? false,
   });
 }
 
 async function getConversationOutboundMessageCount(
   ctx: MutationCtx,
-  session: Pick<Doc<"automationRuleSessions">, "conversationId">,
+  session: Pick<Doc<"storyAutomationSessions">, "conversationId">,
 ) {
   const sessions = await ctx.db
-    .query("automationRuleSessions")
+    .query("storyAutomationSessions")
     .withIndex("by_conversation_id", (q) =>
       q.eq("conversationId", session.conversationId),
     )
@@ -139,10 +196,11 @@ async function getConversationOutboundMessageCount(
   );
 }
 
-async function tripRuleAutomationGuardrail(
+async function tripStoryAutomationGuardrail(
   ctx: MutationCtx,
   args: {
-    session: Doc<"automationRuleSessions">;
+    session: Doc<"storyAutomationSessions">;
+    automation: StoryAutomation;
     reason: string;
   },
 ) {
@@ -155,13 +213,21 @@ async function tripRuleAutomationGuardrail(
     followGateInputMode: null,
     lastStepAt: trippedAt,
   });
+
+  await ctx.db.patch(args.automation._id, {
+    status: "paused",
+    guardrailTrippedAt: trippedAt,
+    guardrailReason: args.reason,
+    guardrailSessionId: args.session._id,
+    guardrailConversationId: args.session.conversationId,
+  });
 }
 
-async function queueGuardedRuleAutomationTextReply(
+async function queueGuardedStoryAutomationTextReply(
   ctx: MutationCtx,
   args: {
-    sessionId: Id<"automationRuleSessions">;
-    automation: RuleAutomation;
+    sessionId: Id<"storyAutomationSessions">;
+    automation: StoryAutomation;
     messageText: string;
     purpose: string;
     allowCompletedSession?: boolean;
@@ -173,18 +239,19 @@ async function queueGuardedRuleAutomationTextReply(
     session.currentStep === "guardrail_tripped" ||
     (!args.allowCompletedSession && session.currentStep === "completed") ||
     (session.guardrailTrippedAt ?? null) !== null ||
-    !args.automation.isActive
+    args.automation.status !== "live"
   ) {
     return false;
   }
 
   const sessionOutboundCount = session.outboundMessageCount ?? 0;
-  if (sessionOutboundCount + 1 > RULE_AUTOMATION_SESSION_MESSAGE_LIMIT) {
-    await tripRuleAutomationGuardrail(ctx, {
+  if (sessionOutboundCount + 1 > STORY_AUTOMATION_SESSION_MESSAGE_LIMIT) {
+    await tripStoryAutomationGuardrail(ctx, {
       session,
+      automation: args.automation,
       reason: buildGuardrailReason({
         limitType: "session",
-        limit: RULE_AUTOMATION_SESSION_MESSAGE_LIMIT,
+        limit: STORY_AUTOMATION_SESSION_MESSAGE_LIMIT,
         purpose: args.purpose,
       }),
     });
@@ -197,13 +264,14 @@ async function queueGuardedRuleAutomationTextReply(
   );
   if (
     conversationOutboundCount + 1 >
-    RULE_AUTOMATION_CONVERSATION_MESSAGE_LIMIT
+    STORY_AUTOMATION_CONVERSATION_MESSAGE_LIMIT
   ) {
-    await tripRuleAutomationGuardrail(ctx, {
+    await tripStoryAutomationGuardrail(ctx, {
       session,
+      automation: args.automation,
       reason: buildGuardrailReason({
         limitType: "conversation",
-        limit: RULE_AUTOMATION_CONVERSATION_MESSAGE_LIMIT,
+        limit: STORY_AUTOMATION_CONVERSATION_MESSAGE_LIMIT,
         purpose: args.purpose,
       }),
     });
@@ -215,9 +283,10 @@ async function queueGuardedRuleAutomationTextReply(
     instagramAccountId: session.instagramAccountId,
     conversationId: session.conversationId,
     contactId: session.contactId,
-    messageText: args.messageText,
-    automationRuleId: session.automationRuleId,
+    automationRuleId: null,
+    storyAutomationId: session.storyAutomationId,
     sequenceEnrollmentId: null,
+    messageText: args.messageText,
   });
 
   await ctx.db.patch(session._id, {
@@ -228,11 +297,11 @@ async function queueGuardedRuleAutomationTextReply(
   return true;
 }
 
-async function queueGuardedRuleAutomationButtonTemplate(
+async function queueGuardedStoryAutomationButtonTemplate(
   ctx: MutationCtx,
   args: {
-    sessionId: Id<"automationRuleSessions">;
-    automation: RuleAutomation;
+    sessionId: Id<"storyAutomationSessions">;
+    automation: StoryAutomation;
     messageText: string;
     buttons: AutomatedButton[];
     purpose: string;
@@ -245,18 +314,19 @@ async function queueGuardedRuleAutomationButtonTemplate(
     session.currentStep === "guardrail_tripped" ||
     (!args.allowCompletedSession && session.currentStep === "completed") ||
     (session.guardrailTrippedAt ?? null) !== null ||
-    !args.automation.isActive
+    args.automation.status !== "live"
   ) {
     return false;
   }
 
   const sessionOutboundCount = session.outboundMessageCount ?? 0;
-  if (sessionOutboundCount + 1 > RULE_AUTOMATION_SESSION_MESSAGE_LIMIT) {
-    await tripRuleAutomationGuardrail(ctx, {
+  if (sessionOutboundCount + 1 > STORY_AUTOMATION_SESSION_MESSAGE_LIMIT) {
+    await tripStoryAutomationGuardrail(ctx, {
       session,
+      automation: args.automation,
       reason: buildGuardrailReason({
         limitType: "session",
-        limit: RULE_AUTOMATION_SESSION_MESSAGE_LIMIT,
+        limit: STORY_AUTOMATION_SESSION_MESSAGE_LIMIT,
         purpose: args.purpose,
       }),
     });
@@ -269,13 +339,14 @@ async function queueGuardedRuleAutomationButtonTemplate(
   );
   if (
     conversationOutboundCount + 1 >
-    RULE_AUTOMATION_CONVERSATION_MESSAGE_LIMIT
+    STORY_AUTOMATION_CONVERSATION_MESSAGE_LIMIT
   ) {
-    await tripRuleAutomationGuardrail(ctx, {
+    await tripStoryAutomationGuardrail(ctx, {
       session,
+      automation: args.automation,
       reason: buildGuardrailReason({
         limitType: "conversation",
-        limit: RULE_AUTOMATION_CONVERSATION_MESSAGE_LIMIT,
+        limit: STORY_AUTOMATION_CONVERSATION_MESSAGE_LIMIT,
         purpose: args.purpose,
       }),
     });
@@ -287,15 +358,91 @@ async function queueGuardedRuleAutomationButtonTemplate(
     instagramAccountId: session.instagramAccountId,
     conversationId: session.conversationId,
     contactId: session.contactId,
+    automationRuleId: null,
+    storyAutomationId: session.storyAutomationId,
+    sequenceEnrollmentId: null,
     messageText: args.messageText,
     buttons: args.buttons,
-    automationRuleId: session.automationRuleId,
-    sequenceEnrollmentId: null,
   });
 
   await ctx.db.patch(session._id, {
     outboundMessageCount: sessionOutboundCount + 1,
     lastStepAt: Date.now(),
+  });
+
+  return true;
+}
+
+async function queueGuardedStoryAutomationReaction(
+  ctx: MutationCtx,
+  args: {
+    sessionId: Id<"storyAutomationSessions">;
+    automation: StoryAutomation;
+    triggerMessageId: string;
+    purpose: string;
+  },
+) {
+  const session = await ctx.db.get(args.sessionId);
+  if (
+    session === null ||
+    session.currentStep === "guardrail_tripped" ||
+    (session.guardrailTrippedAt ?? null) !== null ||
+    args.automation.status !== "live"
+  ) {
+    return false;
+  }
+
+  const sessionOutboundCount = session.outboundMessageCount ?? 0;
+  if (sessionOutboundCount + 1 > STORY_AUTOMATION_SESSION_MESSAGE_LIMIT) {
+    await tripStoryAutomationGuardrail(ctx, {
+      session,
+      automation: args.automation,
+      reason: buildGuardrailReason({
+        limitType: "session",
+        limit: STORY_AUTOMATION_SESSION_MESSAGE_LIMIT,
+        purpose: args.purpose,
+      }),
+    });
+    return false;
+  }
+
+  const conversationOutboundCount = await getConversationOutboundMessageCount(
+    ctx,
+    session,
+  );
+  if (
+    conversationOutboundCount + 1 >
+    STORY_AUTOMATION_CONVERSATION_MESSAGE_LIMIT
+  ) {
+    await tripStoryAutomationGuardrail(ctx, {
+      session,
+      automation: args.automation,
+      reason: buildGuardrailReason({
+        limitType: "conversation",
+        limit: STORY_AUTOMATION_CONVERSATION_MESSAGE_LIMIT,
+        purpose: args.purpose,
+      }),
+    });
+    return false;
+  }
+
+  await queueAutomatedStoryReaction(ctx, {
+    workspaceId: session.workspaceId,
+    instagramAccountId: session.instagramAccountId,
+    conversationId: session.conversationId,
+    contactId: session.contactId,
+    automationRuleId: null,
+    storyAutomationId: session.storyAutomationId,
+    sequenceEnrollmentId: null,
+    messageText: `Reacted with ${STORY_REACTION_EMOJI}`,
+    emoji: STORY_REACTION_EMOJI,
+    triggerMessageId: args.triggerMessageId,
+  });
+
+  await ctx.db.patch(session._id, {
+    outboundMessageCount: sessionOutboundCount + 1,
+    lastStepAt: Date.now(),
+    reactionSentAt: Date.now(),
   });
 
   return true;
@@ -311,47 +458,33 @@ function chunkButtons(buttons: AutomatedButton[], size: number) {
   return chunks;
 }
 
-function getLinkButtons(
-  automation: Pick<RuleAutomation, "linkButtons">,
-): WebUrlButton[] {
-  if (!automation.linkButtons || automation.linkButtons.length === 0) {
-    return [];
-  }
-
-  return automation.linkButtons.map((button) => ({
-    type: "web_url" as const,
-    title: button.label.trim(),
-    url: button.url.trim(),
-  }));
-}
-
-async function getLatestSessionsForRuleAutomation(
+async function getLatestSessionsForStoryAutomation(
   ctx: MutationCtx,
   contactId: Id<"contacts">,
-  automationRuleId: Id<"automationRules">,
+  storyAutomationId: Id<"storyAutomations">,
 ) {
   return await ctx.db
-    .query("automationRuleSessions")
-    .withIndex("by_contact_id_and_automation_rule_id", (q) =>
-      q.eq("contactId", contactId).eq("automationRuleId", automationRuleId),
+    .query("storyAutomationSessions")
+    .withIndex("by_contact_id_and_story_automation_id", (q) =>
+      q.eq("contactId", contactId).eq("storyAutomationId", storyAutomationId),
     )
     .order("desc")
     .take(10);
 }
 
-export async function startRuleAutomationSession(
+export async function startStoryAutomationSession(
   ctx: MutationCtx,
-  automation: RuleAutomation,
+  automation: StoryAutomation,
   args: StartSessionArgs,
 ) {
-  if (getRuleAutomationValidationIssues(automation).length > 0) {
+  if (getStoryAutomationValidationIssues(automation).length > 0) {
     return null;
   }
 
-  const existingSessions = await getLatestSessionsForRuleAutomation(
+  const existingSessions = await getLatestSessionsForStoryAutomation(
     ctx,
     args.contactId,
-    args.automationRuleId,
+    args.storyAutomationId,
   );
   const activeSession = existingSessions.find(
     (session) => !isTerminalSessionStep(session.currentStep),
@@ -361,26 +494,30 @@ export async function startRuleAutomationSession(
     return null;
   }
 
-  let firstStep: Doc<"automationRuleSessions">["currentStep"];
-  if (automation.followGateEnabled ?? false) {
+  let firstStep: Doc<"storyAutomationSessions">["currentStep"];
+  if (automation.followGateEnabled) {
     firstStep = "follow_gate_sent";
   } else if (
     automation.emailCollectionEnabled &&
-    (automation.emailCollectionText ?? "").trim()
+    automation.emailCollectionText.trim()
   ) {
     firstStep = "email_requested";
   } else {
     firstStep = "link_sent";
   }
 
-  const sessionId = await ctx.db.insert("automationRuleSessions", {
+  const sessionId = await ctx.db.insert("storyAutomationSessions", {
     workspaceId: args.workspaceId,
-    automationRuleId: args.automationRuleId,
+    storyAutomationId: args.storyAutomationId,
     contactId: args.contactId,
     conversationId: args.conversationId,
     instagramAccountId: args.instagramAccountId,
     currentStep: firstStep,
     collectedEmail: null,
+    triggerMessageId: args.triggerMessageId,
+    storyId: args.storyId,
+    storyUrl: args.storyUrl,
+    storyToken: args.storyToken,
     startedAt: args.matchedAt,
     lastStepAt: args.matchedAt,
     outboundMessageCount: 0,
@@ -392,19 +529,34 @@ export async function startRuleAutomationSession(
     linkClickedAt: null,
     followUpScheduledAt: null,
     followUpSentAt: null,
+    reactionSentAt: null,
   });
 
   await ctx.runMutation(internal.contacts.upsertContactAutomationMembership, {
     workspaceId: args.workspaceId,
     contactId: args.contactId,
     conversationId: args.conversationId,
-    automationKind: "rule",
-    automationRuleId: args.automationRuleId,
+    automationKind: "story_automation",
+    automationRuleId: null,
     commentAutomationId: null,
-    storyAutomationId: null,
+    storyAutomationId: args.storyAutomationId,
     sequenceDefinitionId: null,
     matchedAt: args.matchedAt,
   });
+
+  if (automation.reactionEnabled && args.triggerMessageId?.trim()) {
+    await queueGuardedStoryAutomationReaction(ctx, {
+      sessionId,
+      automation,
+      triggerMessageId: args.triggerMessageId,
+      purpose: "the story reply reaction",
+    });
+  }
+
+  const reactionSession = await ctx.db.get(sessionId);
+  if (reactionSession?.currentStep === "guardrail_tripped") {
+    return sessionId;
+  }
 
   if (firstStep === "follow_gate_sent") {
     await sendFollowGate(ctx, {
@@ -422,10 +574,10 @@ export async function startRuleAutomationSession(
       });
     }
   } else if (firstStep === "email_requested") {
-    await queueGuardedRuleAutomationTextReply(ctx, {
+    await queueGuardedStoryAutomationTextReply(ctx, {
       sessionId,
       automation,
-      messageText: automation.emailCollectionText ?? "",
+      messageText: automation.emailCollectionText,
       purpose: "the email prompt",
     });
 
@@ -449,9 +601,9 @@ export async function startRuleAutomationSession(
   return sessionId;
 }
 
-export async function advanceRuleAutomationSession(
+export async function advanceStoryAutomationSession(
   ctx: MutationCtx,
-  sessionId: Id<"automationRuleSessions">,
+  sessionId: Id<"storyAutomationSessions">,
   inbound: AdvanceSessionInput,
 ) {
   const session = await ctx.db.get(sessionId);
@@ -459,8 +611,8 @@ export async function advanceRuleAutomationSession(
     return null;
   }
 
-  const automation = await ctx.db.get(session.automationRuleId);
-  if (!automation || getRuleAutomationValidationIssues(automation).length > 0) {
+  const automation = await ctx.db.get(session.storyAutomationId);
+  if (!automation || getStoryAutomationValidationIssues(automation).length > 0) {
     return null;
   }
 
@@ -476,10 +628,10 @@ export async function advanceRuleAutomationSession(
     case "awaiting_email": {
       const email = extractEmail(inbound.text);
       if (email === null) {
-        await queueGuardedRuleAutomationTextReply(ctx, {
+        await queueGuardedStoryAutomationTextReply(ctx, {
           sessionId,
           automation,
-          messageText: RULE_INVALID_EMAIL_PROMPT,
+          messageText: STORY_INVALID_EMAIL_PROMPT,
           purpose: "the email retry prompt",
         });
         const updatedSession = await ctx.db.get(sessionId);
@@ -512,20 +664,20 @@ export async function advanceRuleAutomationSession(
 async function continueAfterFollowGate(
   ctx: MutationCtx,
   args: {
-    session: Doc<"automationRuleSessions">;
-    automation: RuleAutomation;
+    session: Doc<"storyAutomationSessions">;
+    automation: StoryAutomation;
   },
 ) {
   const now = Date.now();
 
   if (
     args.automation.emailCollectionEnabled &&
-    (args.automation.emailCollectionText ?? "").trim()
+    args.automation.emailCollectionText.trim()
   ) {
-    await queueGuardedRuleAutomationTextReply(ctx, {
+    await queueGuardedStoryAutomationTextReply(ctx, {
       sessionId: args.session._id,
       automation: args.automation,
-      messageText: args.automation.emailCollectionText ?? "",
+      messageText: args.automation.emailCollectionText,
       purpose: "the email prompt",
     });
     const updatedSession = await ctx.db.get(args.session._id);
@@ -546,24 +698,24 @@ async function continueAfterFollowGate(
 }
 
 function getFollowGateMessage(
-  automation: Pick<RuleAutomation, "followGateText">,
+  automation: Pick<StoryAutomation, "followGateText">,
   consentRequired: boolean,
 ) {
   const baseMessage =
-    automation.followGateText?.trim() || RULE_DEFAULT_FOLLOW_GATE_MESSAGE;
+    automation.followGateText.trim() || STORY_DEFAULT_FOLLOW_GATE_MESSAGE;
 
   if (!consentRequired) {
     return baseMessage;
   }
 
-  return `${baseMessage}\n\n${RULE_FOLLOW_GATE_CONSENT_MESSAGE}`;
+  return `${baseMessage}\n\n${STORY_FOLLOW_GATE_CONSENT_MESSAGE}`;
 }
 
 async function sendFollowGate(
   ctx: MutationCtx,
   args: {
-    sessionId: Id<"automationRuleSessions">;
-    automation: RuleAutomation;
+    sessionId: Id<"storyAutomationSessions">;
+    automation: StoryAutomation;
     consentRequired: boolean;
   },
 ) {
@@ -573,7 +725,7 @@ async function sendFollowGate(
   );
 
   if (args.consentRequired) {
-    return await queueGuardedRuleAutomationTextReply(ctx, {
+    return await queueGuardedStoryAutomationTextReply(ctx, {
       sessionId: args.sessionId,
       automation: args.automation,
       messageText,
@@ -581,14 +733,14 @@ async function sendFollowGate(
     });
   }
 
-  return await queueGuardedRuleAutomationButtonTemplate(ctx, {
+  return await queueGuardedStoryAutomationButtonTemplate(ctx, {
     sessionId: args.sessionId,
     automation: args.automation,
     messageText,
     buttons: [
       {
         type: "postback",
-        title: RULE_FOLLOW_GATE_BUTTON_TEXT,
+        title: STORY_FOLLOW_GATE_BUTTON_TEXT,
         payload: FOLLOW_GATE_POSTBACK_PAYLOAD,
       },
     ],
@@ -599,8 +751,8 @@ async function sendFollowGate(
 async function sendLinkDm(
   ctx: MutationCtx,
   args: {
-    sessionId: Id<"automationRuleSessions">;
-    automation: RuleAutomation;
+    sessionId: Id<"storyAutomationSessions">;
+    automation: StoryAutomation;
   },
 ) {
   const session = await ctx.db.get(args.sessionId);
@@ -609,11 +761,10 @@ async function sendLinkDm(
   }
 
   const messageText =
-    getEffectiveRuleLinkDmText({
-      replyText: args.automation.replyText,
+    getEffectiveStoryLinkDmText({
       linkDmText: args.automation.linkDmText,
       hasLinkButtons: getLinkButtons(args.automation).length > 0,
-    }) || RULE_DEFAULT_LINK_MESSAGE;
+    }) || STORY_DEFAULT_LINK_MESSAGE;
   const rawLinkButtons = getLinkButtons(args.automation);
   const trackedButtons: WebUrlButton[] = [];
 
@@ -623,10 +774,10 @@ async function sendLinkDm(
 
     for (const [buttonIndex, button] of rawLinkButtons.entries()) {
       const token = crypto.randomUUID();
-      await ctx.db.insert("automationRuleTrackedLinks", {
+      await ctx.db.insert("storyAutomationTrackedLinks", {
         workspaceId: session.workspaceId,
         instagramAccountId: session.instagramAccountId,
-        automationRuleId: session.automationRuleId,
+        storyAutomationId: session.storyAutomationId,
         sessionId: session._id,
         token,
         destinationUrl: button.url,
@@ -639,7 +790,7 @@ async function sendLinkDm(
       trackedButtons.push({
         type: "web_url",
         title: button.title,
-        url: new URL(`/api/rule-automation/links/${token}`, siteUrl).toString(),
+        url: new URL(`/api/story-automation/links/${token}`, siteUrl).toString(),
       });
     }
   }
@@ -648,10 +799,11 @@ async function sendLinkDm(
     const buttonBatches = chunkButtons(trackedButtons, 3);
 
     for (const [index, buttons] of buttonBatches.entries()) {
-      const queued = await queueGuardedRuleAutomationButtonTemplate(ctx, {
+      const queued = await queueGuardedStoryAutomationButtonTemplate(ctx, {
         sessionId: session._id,
         automation: args.automation,
-        messageText: index === 0 ? messageText : RULE_DEFAULT_LINK_BATCH_MESSAGE,
+        messageText:
+          index === 0 ? messageText : STORY_DEFAULT_LINK_BATCH_MESSAGE,
         buttons,
         purpose: "the link delivery",
       });
@@ -660,7 +812,7 @@ async function sendLinkDm(
       }
     }
   } else {
-    const queued = await queueGuardedRuleAutomationTextReply(ctx, {
+    const queued = await queueGuardedStoryAutomationTextReply(ctx, {
       sessionId: session._id,
       automation: args.automation,
       messageText,
@@ -672,7 +824,7 @@ async function sendLinkDm(
   }
 
   const now = Date.now();
-  const nextPatch: Partial<Doc<"automationRuleSessions">> = {
+  const nextPatch: Partial<Doc<"storyAutomationSessions">> = {
     currentStep: "completed",
     lastStepAt: now,
     followGateInputMode: null,
@@ -681,15 +833,15 @@ async function sendLinkDm(
 
   if (
     args.automation.followUpEnabled &&
-    (args.automation.followUpText ?? "").trim() &&
+    args.automation.followUpText.trim() &&
     trackedButtons.length > 0 &&
     (session.followUpScheduledAt ?? null) === null
   ) {
-    nextPatch.followUpScheduledAt = now + RULE_FOLLOW_UP_DELAY_MS;
+    nextPatch.followUpScheduledAt = now + STORY_FOLLOW_UP_DELAY_MS;
 
     await ctx.scheduler.runAfter(
-      RULE_FOLLOW_UP_DELAY_MS,
-      internal.automations.ruleFlow.processScheduledFollowUp,
+      STORY_FOLLOW_UP_DELAY_MS,
+      internal.automations.storyFlow.processScheduledFollowUp,
       { sessionId: session._id },
     );
   }
@@ -698,7 +850,7 @@ async function sendLinkDm(
 }
 
 export const processScheduledFollowUp = internalMutation({
-  args: { sessionId: v.id("automationRuleSessions") },
+  args: { sessionId: v.id("storyAutomationSessions") },
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.sessionId);
     if (session === null) {
@@ -714,16 +866,16 @@ export const processScheduledFollowUp = internalMutation({
       return null;
     }
 
-    const automation = await ctx.db.get(session.automationRuleId);
+    const automation = await ctx.db.get(session.storyAutomationId);
     const conversation = await ctx.db.get(session.conversationId);
 
     if (
       automation === null ||
       conversation === null ||
-      !automation.isActive ||
+      automation.status !== "live" ||
       !automation.followUpEnabled ||
-      !(automation.followUpText ?? "").trim() ||
-      getRuleAutomationValidationIssues(automation).length > 0
+      !automation.followUpText.trim() ||
+      getStoryAutomationValidationIssues(automation).length > 0
     ) {
       return null;
     }
@@ -742,10 +894,10 @@ export const processScheduledFollowUp = internalMutation({
       return null;
     }
 
-    const queued = await queueGuardedRuleAutomationTextReply(ctx, {
+    const queued = await queueGuardedStoryAutomationTextReply(ctx, {
       sessionId: session._id,
       automation,
-      messageText: automation.followUpText ?? "",
+      messageText: automation.followUpText,
       purpose: "the follow-up DM",
       allowCompletedSession: true,
     });
@@ -762,16 +914,16 @@ export const processScheduledFollowUp = internalMutation({
   },
 });
 
-export const advanceRuleAutomationSessionInternal = internalMutation({
+export const advanceStoryAutomationSessionInternal = internalMutation({
   args: {
-    sessionId: v.id("automationRuleSessions"),
+    sessionId: v.id("storyAutomationSessions"),
     hasMessage: v.boolean(),
     text: v.union(v.string(), v.null()),
     postbackPayload: v.union(v.string(), v.null()),
     quickReplyPayload: v.union(v.string(), v.null()),
   },
   handler: async (ctx, args) => {
-    return await advanceRuleAutomationSession(ctx, args.sessionId, {
+    return await advanceStoryAutomationSession(ctx, args.sessionId, {
       hasMessage: args.hasMessage,
       text: args.text,
       postbackPayload: args.postbackPayload,
@@ -780,15 +932,15 @@ export const advanceRuleAutomationSessionInternal = internalMutation({
   },
 });
 
-export const getRuleAutomationSessionActionContext = internalQuery({
-  args: { sessionId: v.id("automationRuleSessions") },
+export const getStoryAutomationSessionActionContext = internalQuery({
+  args: { sessionId: v.id("storyAutomationSessions") },
   handler: async (ctx, args) => {
     const session = await ctx.db.get(args.sessionId);
     if (session === null) {
       return null;
     }
 
-    const automation = await ctx.db.get(session.automationRuleId);
+    const automation = await ctx.db.get(session.storyAutomationId);
     const account = await ctx.db.get(session.instagramAccountId);
     const contact = await ctx.db.get(session.contactId);
 
@@ -875,7 +1027,7 @@ async function checkInstagramFollowGateStatus(
 
 export const handleFollowGateCheckResult = internalMutation({
   args: {
-    sessionId: v.id("automationRuleSessions"),
+    sessionId: v.id("storyAutomationSessions"),
     deliveryKey: v.union(v.string(), v.null()),
     status: v.union(
       v.literal("following"),
@@ -889,7 +1041,7 @@ export const handleFollowGateCheckResult = internalMutation({
       return null;
     }
 
-    const automation = await ctx.db.get(session.automationRuleId);
+    const automation = await ctx.db.get(session.storyAutomationId);
     if (automation === null) {
       return null;
     }
@@ -927,9 +1079,9 @@ export const handleFollowGateCheckResult = internalMutation({
   },
 });
 
-export const processInboundRuleAutomationInteraction = internalAction({
+export const processInboundStoryAutomationInteraction = internalAction({
   args: {
-    sessionId: v.id("automationRuleSessions"),
+    sessionId: v.id("storyAutomationSessions"),
     hasMessage: v.boolean(),
     text: v.union(v.string(), v.null()),
     postbackPayload: v.union(v.string(), v.null()),
@@ -938,7 +1090,7 @@ export const processInboundRuleAutomationInteraction = internalAction({
   },
   handler: async (ctx, args) => {
     const context = await ctx.runQuery(
-      internal.automations.ruleFlow.getRuleAutomationSessionActionContext,
+      internal.automations.storyFlow.getStoryAutomationSessionActionContext,
       { sessionId: args.sessionId },
     );
 
@@ -960,7 +1112,7 @@ export const processInboundRuleAutomationInteraction = internalAction({
 
     if (!automation.followGateEnabled || !isFollowStep) {
       await ctx.runMutation(
-        internal.automations.ruleFlow.advanceRuleAutomationSessionInternal,
+        internal.automations.storyFlow.advanceStoryAutomationSessionInternal,
         {
           sessionId: args.sessionId,
           hasMessage: args.hasMessage,
@@ -993,11 +1145,14 @@ export const processInboundRuleAutomationInteraction = internalAction({
             instagramScopedUserId: contact.instagramUserId,
           });
 
-    await ctx.runMutation(internal.automations.ruleFlow.handleFollowGateCheckResult, {
-      sessionId: session._id,
-      deliveryKey: args.deliveryKey,
-      status: followStatus,
-    });
+    await ctx.runMutation(
+      internal.automations.storyFlow.handleFollowGateCheckResult,
+      {
+        sessionId: session._id,
+        deliveryKey: args.deliveryKey,
+        status: followStatus,
+      },
+    );
 
     return null;
   },

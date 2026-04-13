@@ -2,6 +2,25 @@ import { internal } from "../_generated/api";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
 
+function parseStoredAttemptPayload(payload: string | null) {
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(payload) as
+      | {
+          kind?: "text" | "quick_reply" | "button_template";
+        }
+      | {
+          kind?: "story_reply_reaction";
+          triggerMessageId?: string;
+        };
+  } catch {
+    return null;
+  }
+}
+
 export const getQueuedDeliveryContext = internalQuery({
   args: { deliveryAttemptId: v.id("deliveryAttempts") },
   handler: async (ctx, args) => {
@@ -61,14 +80,27 @@ export const markDeliveryAttemptResult = internalMutation({
       return null;
     }
 
+    const parsedPayload = parseStoredAttemptPayload(attempt.requestPayload);
+    const messageType =
+      parsedPayload?.kind === "story_reply_reaction" ? "reaction" : "text";
+    const triggerMessageId =
+      parsedPayload?.kind === "story_reply_reaction"
+        ? (parsedPayload.triggerMessageId ?? null)
+        : null;
+    const source = attempt.sequenceEnrollmentId
+      ? "sequence"
+      : attempt.storyAutomationId
+        ? "story_automation"
+        : "rule";
+
     await ctx.db.insert("messages", {
       workspaceId: attempt.workspaceId,
       instagramAccountId: attempt.instagramAccountId,
       conversationId: attempt.conversationId,
       contactId: attempt.contactId,
       direction: "outbound",
-      source: attempt.sequenceEnrollmentId ? "sequence" : "rule",
-      messageType: "text",
+      source,
+      messageType,
       text: attempt.messageText,
       metaMessageId: args.metaMessageId,
       dedupeKey: `delivery:${attempt._id}:${attempt.attemptNumber}`,
@@ -76,7 +108,9 @@ export const markDeliveryAttemptResult = internalMutation({
       eventTime: Date.now(),
       webhookEventId: null,
       automationRuleId: attempt.automationRuleId,
+      storyAutomationId: attempt.storyAutomationId ?? null,
       sequenceEnrollmentId: attempt.sequenceEnrollmentId,
+      triggerMessageId,
     });
 
     await ctx.db.patch(attempt.conversationId, {

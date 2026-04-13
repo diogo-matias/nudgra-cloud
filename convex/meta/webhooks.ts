@@ -8,9 +8,17 @@ import {
 } from "../automations/shared";
 import { advanceCommentAutomationSession } from "../automations/commentFlow";
 import {
+  advanceStoryAutomationSession,
+  startStoryAutomationSession,
+} from "../automations/storyFlow";
+import {
   advanceRuleAutomationSession,
   startRuleAutomationSession,
 } from "../automations/ruleFlow";
+import {
+  matchesStoryAutomation,
+  normalizeStoryReplyToken,
+} from "../automations/storyShared";
 import { Id } from "../_generated/dataModel";
 
 type MessagingItem = {
@@ -134,6 +142,51 @@ function getWebhookExternalAccountId(payload: unknown) {
   }
 
   return "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getNestedString(value: unknown, path: string[]) {
+  let current: unknown = value;
+
+  for (const key of path) {
+    if (!isRecord(current)) {
+      return null;
+    }
+    current = current[key];
+  }
+
+  return typeof current === "string" && current.trim().length > 0
+    ? current.trim()
+    : null;
+}
+
+function parseStoryReplyMetadata(args: {
+  replyTo: unknown;
+  rawText: string | null;
+}) {
+  const storyId =
+    getNestedString(args.replyTo, ["story", "id"]) ??
+    getNestedString(args.replyTo, ["story", "story_id"]) ??
+    getNestedString(args.replyTo, ["story_id"]) ??
+    getNestedString(args.replyTo, ["storyId"]) ??
+    getNestedString(args.replyTo, ["id"]);
+  const storyUrl =
+    getNestedString(args.replyTo, ["story", "permalink"]) ??
+    getNestedString(args.replyTo, ["story", "url"]) ??
+    getNestedString(args.replyTo, ["permalink"]) ??
+    getNestedString(args.replyTo, ["url"]);
+  const replyToken = args.rawText
+    ? normalizeStoryReplyToken(args.rawText)
+    : null;
+
+  return {
+    storyId,
+    storyUrl,
+    replyToken: replyToken && replyToken.length > 0 ? replyToken : null,
+  };
 }
 
 function humanizeInteractionPayload(payload: string) {
@@ -374,6 +427,16 @@ export const ingestWebhookPayload = internalMutation({
           : typeof item.postback?.title === "string"
             ? item.postback.title.trim()
             : null;
+      const storyReplyMetadata = isStoryReply
+        ? parseStoryReplyMetadata({
+            replyTo: item.message?.reply_to,
+            rawText,
+          })
+        : {
+            storyId: null,
+            storyUrl: null,
+            replyToken: null,
+          };
       const displayText = describeInboundInteraction(item, rawText);
       const metaMessageId = item.message?.mid ?? item.postback?.mid ?? null;
       const deliveryKey =
@@ -526,7 +589,11 @@ export const ingestWebhookPayload = internalMutation({
           eventTime: messageTime,
           webhookEventId,
           automationRuleId: null,
+          storyAutomationId: null,
           sequenceEnrollmentId: null,
+          storyReplyStoryId: storyReplyMetadata.storyId,
+          storyReplyStoryUrl: storyReplyMetadata.storyUrl,
+          storyReplyToken: storyReplyMetadata.replyToken,
         });
       }
 
@@ -544,7 +611,52 @@ export const ingestWebhookPayload = internalMutation({
         deliveryKey,
       };
 
-      const activeRuleSession = !isEcho
+      let handledByActiveSession = false;
+
+      const activeStorySession = !isEcho
+        ? (
+            await ctx.db
+              .query("storyAutomationSessions")
+              .withIndex("by_conversation_id", (q) =>
+                q.eq("conversationId", conversationId),
+              )
+              .order("desc")
+              .take(10)
+          ).find(
+            (session) =>
+              session.currentStep !== "completed" &&
+              session.currentStep !== "link_sent" &&
+              session.currentStep !== "guardrail_tripped",
+          )
+        : null;
+
+      if (activeStorySession) {
+        const sessionAutomation = await ctx.db.get(
+          activeStorySession.storyAutomationId,
+        );
+
+        if (sessionAutomation?.followGateEnabled) {
+          await ctx.scheduler.runAfter(
+            0,
+            internal.automations.storyFlow.processInboundStoryAutomationInteraction,
+            {
+              sessionId: activeStorySession._id,
+              ...inboundInteraction,
+            },
+          );
+        } else {
+          await advanceStoryAutomationSession(ctx, activeStorySession._id, {
+            hasMessage: inboundInteraction.hasMessage,
+            text: inboundInteraction.text,
+            postbackPayload: inboundInteraction.postbackPayload,
+            quickReplyPayload: inboundInteraction.quickReplyPayload,
+          });
+        }
+
+        handledByActiveSession = true;
+      }
+
+      const activeRuleSession = !handledByActiveSession && !isEcho
         ? (
             await ctx.db
               .query("automationRuleSessions")
@@ -581,29 +693,170 @@ export const ingestWebhookPayload = internalMutation({
             quickReplyPayload: inboundInteraction.quickReplyPayload,
           });
         }
+
+        handledByActiveSession = true;
       }
 
-      const activeRules = !activeRuleSession
-        ? await ctx.db
-            .query("automationRules")
-            .withIndex("by_instagram_account_id_and_is_active", (q) =>
-              q.eq("instagramAccountId", account._id).eq("isActive", true),
-            )
-            .take(50)
-        : [];
+      const activeCommentSession = !handledByActiveSession && !isEcho
+        ? (
+            await ctx.db
+              .query("commentAutomationSessions")
+              .withIndex("by_conversation_id", (q) =>
+                q.eq("conversationId", conversationId),
+              )
+              .order("desc")
+              .take(10)
+          ).find(
+            (session) =>
+              session.currentStep !== "completed" &&
+              session.currentStep !== "link_sent" &&
+              session.currentStep !== "guardrail_tripped",
+          )
+        : null;
 
-      const matchedRule =
-        !isEcho && !isPostback && !isQuickReply && !activeRuleSession
-          ? activeRules.find((rule) =>
-              matchesAutomationRule({
-                triggerType: rule.triggerType,
-                matchType: rule.matchType,
-                keywords: rule.keywords,
-                messageText: rawText,
-                isStoryReply,
-              }),
+      if (activeCommentSession) {
+        const sessionAutomation = await ctx.db.get(
+          activeCommentSession.commentAutomationId,
+        );
+
+        if (sessionAutomation?.followGateEnabled) {
+          await ctx.scheduler.runAfter(
+            0,
+            internal.automations.commentFlow.processInboundCommentAutomationInteraction,
+            {
+              sessionId: activeCommentSession._id,
+              ...inboundInteraction,
+            },
+          );
+        } else {
+          await advanceCommentAutomationSession(ctx, activeCommentSession._id, {
+            hasMessage: inboundInteraction.hasMessage,
+            text: inboundInteraction.text,
+            postbackPayload: inboundInteraction.postbackPayload,
+            quickReplyPayload: inboundInteraction.quickReplyPayload,
+          });
+        }
+
+        handledByActiveSession = true;
+      }
+
+      const liveStoryAutomations =
+        !handledByActiveSession &&
+        !isEcho &&
+        !isPostback &&
+        !isQuickReply &&
+        isStoryReply
+          ? await ctx.db
+              .query("storyAutomations")
+              .withIndex("by_instagram_account_id_and_status", (q) =>
+                q.eq("instagramAccountId", account._id).eq("status", "live"),
+              )
+              .take(50)
+          : [];
+
+      const matchedStoryAutomation = liveStoryAutomations.find((automation) =>
+        matchesStoryAutomation({
+          automation,
+          storyId: storyReplyMetadata.storyId,
+          storyUrl: storyReplyMetadata.storyUrl,
+          replyToken: storyReplyMetadata.replyToken,
+        }),
+      );
+
+      if (matchedStoryAutomation) {
+        for (const tagId of matchedStoryAutomation.tagIds) {
+          const existingContactTag = await ctx.db
+            .query("contactTags")
+            .withIndex("by_contact_id_and_tag_id", (q) =>
+              q.eq("contactId", contactId).eq("tagId", tagId),
             )
+            .unique();
+
+          if (existingContactTag === null) {
+            await ctx.db.insert("contactTags", {
+              workspaceId: account.workspaceId,
+              contactId,
+              tagId,
+              source: "story_automation",
+              appliedAt: messageTime,
+            });
+          }
+        }
+
+        await startStoryAutomationSession(ctx, matchedStoryAutomation, {
+          workspaceId: account.workspaceId,
+          instagramAccountId: account._id,
+          storyAutomationId: matchedStoryAutomation._id,
+          contactId,
+          conversationId,
+          matchedAt: messageTime,
+          triggerMessageId: metaMessageId,
+          storyId: storyReplyMetadata.storyId,
+          storyUrl: storyReplyMetadata.storyUrl,
+          storyToken: storyReplyMetadata.replyToken,
+        });
+
+        if (matchedStoryAutomation.sequenceDefinitionId !== null) {
+          await createSequenceEnrollment(ctx, {
+            workspaceId: account.workspaceId,
+            instagramAccountId: account._id,
+            contactId,
+            conversationId,
+            sequenceDefinitionId: matchedStoryAutomation.sequenceDefinitionId,
+          });
+        }
+      }
+
+      const activeRules =
+        !handledByActiveSession && !matchedStoryAutomation
+          ? await ctx.db
+              .query("automationRules")
+              .withIndex("by_instagram_account_id_and_is_active", (q) =>
+                q.eq("instagramAccountId", account._id).eq("isActive", true),
+              )
+              .take(50)
+          : [];
+
+      const matchedLegacyStoryReplyRule =
+        !handledByActiveSession &&
+        !matchedStoryAutomation &&
+        !isEcho &&
+        !isPostback &&
+        !isQuickReply &&
+        isStoryReply
+          ? activeRules
+              .filter((rule) => rule.triggerType === "story_reply")
+              .find((rule) =>
+                matchesAutomationRule({
+                  triggerType: rule.triggerType,
+                  matchType: rule.matchType,
+                  keywords: rule.keywords,
+                  messageText: rawText,
+                  isStoryReply,
+                }),
+              )
           : undefined;
+
+      const matchedKeywordRule =
+        !handledByActiveSession &&
+        !matchedStoryAutomation &&
+        !isEcho &&
+        !isPostback &&
+        !isQuickReply
+          ? activeRules
+              .filter((rule) => rule.triggerType === "keyword")
+              .find((rule) =>
+                matchesAutomationRule({
+                  triggerType: rule.triggerType,
+                  matchType: rule.matchType,
+                  keywords: rule.keywords,
+                  messageText: rawText,
+                  isStoryReply,
+                }),
+              )
+          : undefined;
+
+      const matchedRule = matchedLegacyStoryReplyRule ?? matchedKeywordRule;
 
       if (matchedRule) {
         await ctx.db.patch(conversationId, {
@@ -646,51 +899,6 @@ export const ingestWebhookPayload = internalMutation({
             conversationId,
             sequenceDefinitionId: matchedRule.sequenceDefinitionId,
           });
-        }
-      }
-
-      // Check for active comment automation sessions and advance them
-      if (!matchedRule && !activeRuleSession && !isEcho) {
-        const recentSessions = await ctx.db
-          .query("commentAutomationSessions")
-          .withIndex("by_conversation_id", (q) =>
-            q.eq("conversationId", conversationId),
-          )
-          .order("desc")
-          .take(10);
-        const activeSession = recentSessions.find(
-          (session) =>
-            session.currentStep !== "completed" &&
-            session.currentStep !== "link_sent" &&
-            session.currentStep !== "guardrail_tripped",
-        );
-
-        if (activeSession) {
-          const sessionAutomation = await ctx.db.get(
-            activeSession.commentAutomationId,
-          );
-
-          if (sessionAutomation?.followGateEnabled) {
-            await ctx.scheduler.runAfter(
-              0,
-              internal.automations.commentFlow.processInboundCommentAutomationInteraction,
-              {
-                sessionId: activeSession._id,
-                ...inboundInteraction,
-              },
-            );
-          } else {
-            await advanceCommentAutomationSession(
-              ctx,
-              activeSession._id,
-              {
-                hasMessage: inboundInteraction.hasMessage,
-                text: inboundInteraction.text,
-                postbackPayload: inboundInteraction.postbackPayload,
-                quickReplyPayload: inboundInteraction.quickReplyPayload,
-              },
-            );
-          }
         }
       }
 

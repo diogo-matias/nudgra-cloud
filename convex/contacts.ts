@@ -31,6 +31,10 @@ const automationFilterValidator = v.union(
     commentAutomationId: v.id("commentAutomations"),
   }),
   v.object({
+    kind: v.literal("story_automation"),
+    storyAutomationId: v.id("storyAutomations"),
+  }),
+  v.object({
     kind: v.literal("sequence"),
     sequenceDefinitionId: v.id("sequenceDefinitions"),
   }),
@@ -38,6 +42,7 @@ const automationFilterValidator = v.union(
 
 const nullableAutomationRuleId = v.union(v.id("automationRules"), v.null());
 const nullableCommentAutomationId = v.union(v.id("commentAutomations"), v.null());
+const nullableStoryAutomationId = v.union(v.id("storyAutomations"), v.null());
 const nullableSequenceDefinitionId = v.union(
   v.id("sequenceDefinitions"),
   v.null(),
@@ -98,7 +103,8 @@ export const listAutomationFilters = query({
   handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
     await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
-    const [rules, commentAutomations, sequences] = await Promise.all([
+    const [rules, commentAutomations, storyAutomations, sequences] =
+      await Promise.all([
       ctx.db
         .query("automationRules")
         .withIndex("by_instagram_account_id", (q) =>
@@ -112,10 +118,16 @@ export const listAutomationFilters = query({
         )
         .take(100),
       ctx.db
+        .query("storyAutomations")
+        .withIndex("by_instagram_account_id", (q) =>
+          q.eq("instagramAccountId", args.accountId),
+        )
+        .take(100),
+      ctx.db
         .query("sequenceDefinitions")
         .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspace._id))
         .take(25),
-    ]);
+      ]);
 
     const serializedRules = [...rules]
       .map((rule) => ({
@@ -133,6 +145,14 @@ export const listAutomationFilters = query({
         status: automation.status,
       }))
       .sort((a, b) => a.label.localeCompare(b.label));
+    const serializedStoryAutomations = [...storyAutomations]
+      .map((automation) => ({
+        id: automation._id,
+        label: automation.name,
+        kind: "story_automation" as const,
+        status: automation.status,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
     const serializedSequences = [...sequences]
       .map((sequence) => ({
         id: sequence._id,
@@ -145,6 +165,7 @@ export const listAutomationFilters = query({
     return {
       rules: serializedRules,
       commentAutomations: serializedCommentAutomations,
+      storyAutomations: serializedStoryAutomations,
       sequences: serializedSequences,
     };
   },
@@ -187,6 +208,15 @@ export const listContacts = query({
                     .eq("commentAutomationId", filter.commentAutomationId),
                 )
                 .take(200)
+            : filter.kind === "story_automation"
+              ? await ctx.db
+                  .query("contactAutomationMemberships")
+                  .withIndex("by_workspace_id_and_story_automation_id", (q) =>
+                    q
+                      .eq("workspaceId", workspace._id)
+                      .eq("storyAutomationId", filter.storyAutomationId),
+                  )
+                  .take(200)
             : await ctx.db
                 .query("contactAutomationMemberships")
                 .withIndex("by_workspace_id_and_sequence_definition_id", (q) =>
@@ -391,22 +421,25 @@ export const upsertContactAutomationMembership = internalMutation({
     automationKind: v.union(
       v.literal("rule"),
       v.literal("comment_automation"),
+      v.literal("story_automation"),
       v.literal("sequence"),
     ),
     automationRuleId: nullableAutomationRuleId,
     commentAutomationId: nullableCommentAutomationId,
+    storyAutomationId: v.optional(nullableStoryAutomationId),
     sequenceDefinitionId: nullableSequenceDefinitionId,
     matchedAt: v.number(),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("contactAutomationMemberships")
-      .withIndex("by_contact_and_kind_and_rule_and_comment_and_sequence", (q) =>
+      .withIndex("by_contact_and_kind_and_rule_and_comment_and_story_and_sequence", (q) =>
         q
           .eq("contactId", args.contactId)
           .eq("automationKind", args.automationKind)
           .eq("automationRuleId", args.automationRuleId)
           .eq("commentAutomationId", args.commentAutomationId)
+          .eq("storyAutomationId", args.storyAutomationId ?? null)
           .eq("sequenceDefinitionId", args.sequenceDefinitionId),
       )
       .unique();
@@ -427,6 +460,7 @@ export const upsertContactAutomationMembership = internalMutation({
       automationKind: args.automationKind,
       automationRuleId: args.automationRuleId,
       commentAutomationId: args.commentAutomationId,
+      storyAutomationId: args.storyAutomationId ?? null,
       sequenceDefinitionId: args.sequenceDefinitionId,
       firstMatchedAt: args.matchedAt,
       lastMatchedAt: args.matchedAt,
