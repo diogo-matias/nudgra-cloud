@@ -2,35 +2,54 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { ArrowLeft } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
-import { RuleAutomationForm } from "@/components/dashboard/rule-automation-form";
+import { StoryAutomationForm } from "@/components/dashboard/story-automation-form";
+import { StoryPickerModal } from "@/components/dashboard/story-picker-modal";
 import { SelectedAccountEmptyState } from "@/components/dashboard/selected-account-empty-state";
 import {
-  getNormalizedRuleAutomationKeywords,
-  getRuleAutomationFormValidationIssues,
-} from "@/lib/rule-automation-ui";
+  getNormalizedStoryAutomationTokens,
+  getStoryAutomationFormValidationIssues,
+} from "@/lib/story-automation-ui";
 
-export default function NewRulePage() {
+type SelectedStory = {
+  id: string;
+  mediaType: string | null;
+  thumbnailUrl: string | null;
+  mediaUrl: string | null;
+  permalink: string | null;
+  timestamp: string | null;
+} | null;
+
+export default function NewStoryAutomationPage() {
   const router = useRouter();
   const accountContext = useQuery(api.accounts.getSelectedAccountContext);
   const selectedAccount = accountContext?.selectedAccount ?? null;
   const options = useQuery(
-    api.automations.rules.getRuleCreationOptions,
+    api.automations.storyAutomations.getStoryAutomationCreationOptions,
     selectedAccount ? { accountId: selectedAccount.id } : "skip",
   );
-  const createRule = useMutation(api.automations.rules.createRule);
+  const liveStories =
+    useQuery(
+      api.meta.storyQueries.listCachedStories,
+      selectedAccount ? { accountId: selectedAccount.id } : "skip",
+    ) ?? [];
+  const createStoryAutomation = useMutation(
+    api.automations.storyAutomations.createStoryAutomation,
+  );
 
   const [name, setName] = useState("");
-  const [triggerKeywords, setTriggerKeywords] = useState<string[]>([]);
-  const [keywordInput, setKeywordInput] = useState("");
-  const [linkDmText, setLinkDmText] = useState("Here's your link:");
-  const [linkButtons, setLinkButtons] = useState<
-    Array<{ label: string; url: string }>
-  >([]);
+  const [storyScope, setStoryScope] = useState<"any" | "specific">("any");
+  const [selectedStoryId, setSelectedStoryId] = useState<string | null>(null);
+  const [replyFilter, setReplyFilter] = useState<
+    "specific_words_or_reactions" | "any_word_or_reaction"
+  >("any_word_or_reaction");
+  const [triggerTokens, setTriggerTokens] = useState<string[]>([]);
+  const [tokenInput, setTokenInput] = useState("");
+  const [reactionEnabled, setReactionEnabled] = useState(false);
   const [followGateEnabled, setFollowGateEnabled] = useState(false);
   const [followGateText, setFollowGateText] = useState(
     "To get the link, please follow our account first!",
@@ -39,21 +58,51 @@ export default function NewRulePage() {
   const [emailCollectionText, setEmailCollectionText] = useState(
     "Drop your email and we'll send it right over:",
   );
+  const [linkDmText, setLinkDmText] = useState("Here's your link:");
+  const [linkButtons, setLinkButtons] = useState<
+    Array<{ label: string; url: string }>
+  >([]);
   const [followUpEnabled, setFollowUpEnabled] = useState(false);
   const [followUpText, setFollowUpText] = useState(
     "Just checking in - did you get the link?",
   );
   const [selectedTagIds, setSelectedTagIds] = useState<Id<"tags">[]>([]);
+  const [showStoryPicker, setShowStoryPicker] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
 
-  const normalizedTriggerKeywords = getNormalizedRuleAutomationKeywords(
-    triggerKeywords,
-    keywordInput,
+  const selectedStory = useMemo<SelectedStory>(() => {
+    if (!selectedStoryId) {
+      return null;
+    }
+
+    const story =
+      liveStories.find((item) => item.storyId === selectedStoryId) ?? null;
+    if (story === null) {
+      return null;
+    }
+
+    return {
+      id: story.storyId,
+      mediaType: story.mediaType,
+      thumbnailUrl: story.thumbnailUrl,
+      mediaUrl: story.mediaUrl,
+      permalink: story.permalink,
+      timestamp: story.timestamp,
+    };
+  }, [liveStories, selectedStoryId]);
+
+  const normalizedTriggerTokens = getNormalizedStoryAutomationTokens(
+    triggerTokens,
+    tokenInput,
   );
-  const validationIssues = getRuleAutomationFormValidationIssues({
+  const validationIssues = getStoryAutomationFormValidationIssues({
     name,
-    triggerKeywords: normalizedTriggerKeywords,
+    storyScope,
+    selectedStoryId,
+    selectedStoryExpiredAt: null,
+    replyFilter,
+    triggerTokens: normalizedTriggerTokens,
     linkDmText,
     linkButtons,
     followUpEnabled,
@@ -70,32 +119,37 @@ export default function NewRulePage() {
     setSubmissionError(null);
 
     try {
-      const result = await createRule({
+      const primaryLink = linkButtons[0] ?? null;
+      const result = await createStoryAutomation({
         accountId: selectedAccount.id,
         name,
-        triggerType: "keyword",
-        matchType: "contains",
-        keywords: normalizedTriggerKeywords,
-        replyText: linkDmText,
-        linkDmText,
-        linkButtons,
+        storyScope,
+        selectedStoryId: selectedStoryId ?? "",
+        replyFilter,
+        triggerTokens: normalizedTriggerTokens,
+        triggerTokenLabels: triggerTokens,
+        reactionEnabled,
         followGateEnabled,
         followGateText,
         emailCollectionEnabled,
         emailCollectionText,
+        linkDmText,
+        linkButtons,
+        linkUrl: primaryLink?.url ?? "",
+        linkButtonText: primaryLink?.label ?? "Open link",
         followUpEnabled,
         followUpText,
-        isActive: goLive,
         tagIds: selectedTagIds,
         sequenceDefinitionId: null,
+        goLive,
       });
 
-      router.push(`/dashboard/automations/rules/${result.ruleId}`);
+      router.push(`/dashboard/automations/stories/${result.automationId}`);
     } catch (error) {
       setSubmissionError(
         error instanceof Error
           ? error.message
-          : "Failed to create automation.",
+          : "Failed to create story automation.",
       );
       setIsSubmitting(false);
     }
@@ -106,7 +160,7 @@ export default function NewRulePage() {
       <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         <SelectedAccountEmptyState
           title="No active Instagram account"
-          description="Choose an active Instagram account from the sidebar before creating a DM automation."
+          description="Choose an active Instagram account from the sidebar before creating a story automation."
         />
       </main>
     );
@@ -126,7 +180,7 @@ export default function NewRulePage() {
             </Link>
             <span className="text-border">/</span>
             <span className="text-sm font-medium text-foreground">
-              When someone DMs you
+              Generate leads with stories
             </span>
           </div>
 
@@ -153,21 +207,31 @@ export default function NewRulePage() {
 
       {!options?.hasConnectedAccount ? (
         <div className="border-b border-amber-200 bg-amber-50 px-8 py-3 text-sm text-amber-900">
-          Connect an Instagram account before creating DM automations.
+          Connect an Instagram account before creating story automations.
         </div>
       ) : null}
 
-      <RuleAutomationForm
+      <StoryAutomationForm
         name={name}
         onNameChange={setName}
-        triggerKeywords={triggerKeywords}
-        keywordInput={keywordInput}
-        onKeywordInputChange={setKeywordInput}
-        onTriggerKeywordsChange={setTriggerKeywords}
-        linkDmText={linkDmText}
-        onLinkDmTextChange={setLinkDmText}
-        linkButtons={linkButtons}
-        onLinkButtonsChange={setLinkButtons}
+        storyScope={storyScope}
+        onStoryScopeChange={(value) => {
+          setStoryScope(value);
+          if (value === "any") {
+            setSelectedStoryId(null);
+          }
+        }}
+        selectedStory={selectedStory}
+        selectedStoryExpiredAt={null}
+        onPickStory={() => setShowStoryPicker(true)}
+        replyFilter={replyFilter}
+        onReplyFilterChange={setReplyFilter}
+        triggerTokens={triggerTokens}
+        tokenInput={tokenInput}
+        onTokenInputChange={setTokenInput}
+        onTriggerTokensChange={setTriggerTokens}
+        reactionEnabled={reactionEnabled}
+        onReactionEnabledChange={setReactionEnabled}
         followGateEnabled={followGateEnabled}
         onFollowGateEnabledChange={setFollowGateEnabled}
         followGateText={followGateText}
@@ -176,6 +240,10 @@ export default function NewRulePage() {
         onEmailCollectionEnabledChange={setEmailCollectionEnabled}
         emailCollectionText={emailCollectionText}
         onEmailCollectionTextChange={setEmailCollectionText}
+        linkDmText={linkDmText}
+        onLinkDmTextChange={setLinkDmText}
+        linkButtons={linkButtons}
+        onLinkButtonsChange={setLinkButtons}
         followUpEnabled={followUpEnabled}
         onFollowUpEnabledChange={setFollowUpEnabled}
         followUpText={followUpText}
@@ -188,6 +256,14 @@ export default function NewRulePage() {
         submissionError={submissionError}
         username={selectedAccount.username}
         profilePictureUrl={selectedAccount.profilePictureUrl}
+      />
+
+      <StoryPickerModal
+        accountId={selectedAccount.id}
+        open={showStoryPicker}
+        onOpenChange={setShowStoryPicker}
+        selectedStoryId={selectedStoryId}
+        onSelectionChange={(storyId) => setSelectedStoryId(storyId)}
       />
     </main>
   );

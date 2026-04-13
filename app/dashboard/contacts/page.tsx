@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { ChevronDown, Search, Users } from "lucide-react";
+import { ChevronDown, Download, Search, Users } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -12,10 +12,12 @@ import {
 } from "@/components/dashboard/contact-avatar";
 import { ContactDetailDialog } from "@/components/dashboard/contact-detail-dialog";
 import { StatusPill } from "@/components/dashboard/status-pill";
+import { Button } from "@/components/ui/button";
 import {
   formatDateTime,
   formatRelativeTime,
 } from "@/lib/dashboard-formatters";
+import { buildContactsCsv } from "@/lib/contacts-csv";
 import { SelectedAccountEmptyState } from "@/components/dashboard/selected-account-empty-state";
 
 type ContactListItem = NonNullable<
@@ -46,6 +48,13 @@ function parseAutomationFilter(value: string) {
     };
   }
 
+  if (kind === "story_automation") {
+    return {
+      kind: "story_automation" as const,
+      storyAutomationId: id as Id<"storyAutomations">,
+    };
+  }
+
   if (kind === "sequence") {
     return {
       kind: "sequence" as const,
@@ -56,14 +65,46 @@ function parseAutomationFilter(value: string) {
   return null;
 }
 
-function automationKindLabel(kind: "rule" | "comment_automation" | "sequence") {
+function automationKindLabel(
+  kind: "rule" | "comment_automation" | "story_automation" | "sequence",
+) {
   if (kind === "comment_automation") {
     return "Comment";
+  }
+  if (kind === "story_automation") {
+    return "Story";
   }
   if (kind === "sequence") {
     return "Sequence";
   }
   return "Rule";
+}
+
+function downloadContactsCsv(contacts: ContactListItem[]) {
+  const csv = buildContactsCsv(
+    contacts.map((contact) => ({
+      displayName: contact.displayName,
+      username: contact.username,
+      latestEmail: contact.latestEmail,
+      emailCount: contact.emailCount,
+      emails: contact.emails,
+      tags: contact.tags,
+      automations: contact.automations,
+      subscribedAt: contact.subscribedAt,
+      lastInboundAt: contact.lastInboundAt,
+      lastMessageAt: contact.lastMessageAt,
+    })),
+  );
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+
+  anchor.href = url;
+  anchor.download = `contacts-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
 }
 
 export default function ContactsPage() {
@@ -85,6 +126,7 @@ export default function ContactsPage() {
     ) ?? {
       rules: [],
       commentAutomations: [],
+      storyAutomations: [],
       sequences: [],
     };
   const contactsQuery = useQuery(
@@ -108,6 +150,7 @@ export default function ContactsPage() {
       [
         contact.displayName,
         contact.username,
+        ...contact.emails,
         ...contact.tags.map((tag) => tag.label),
         ...contact.automations.map((automation) => automation.label),
       ]
@@ -202,6 +245,18 @@ export default function ContactsPage() {
                       ))}
                     </optgroup>
                   ) : null}
+                  {automationFilters.storyAutomations.length > 0 ? (
+                    <optgroup label="Story automations">
+                      {automationFilters.storyAutomations.map((automation) => (
+                        <option
+                          key={automation.id}
+                          value={`story_automation:${automation.id}`}
+                        >
+                          {automation.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
                   {automationFilters.sequences.length > 0 ? (
                     <optgroup label="Sequences">
                       {automationFilters.sequences.map((sequence) => (
@@ -223,6 +278,17 @@ export default function ContactsPage() {
                   className="h-10 w-full rounded-xl border border-input bg-background pl-9 pr-3 text-sm text-foreground outline-none transition focus:border-ring focus:ring-2 focus:ring-ring/20"
                 />
               </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 rounded-xl px-3"
+                onClick={() => downloadContactsCsv(filteredContacts)}
+                disabled={filteredContacts.length === 0}
+              >
+                Export CSV
+                <Download className="size-4" />
+              </Button>
             </div>
           </div>
 
@@ -267,6 +333,14 @@ export default function ContactsPage() {
                             {getInstagramHandle(contact.username) ? (
                               <p className="truncate text-xs text-muted-foreground">
                                 {getInstagramHandle(contact.username)}
+                              </p>
+                            ) : null}
+                            {contact.latestEmail ? (
+                              <p className="truncate text-xs text-muted-foreground">
+                                {contact.latestEmail}
+                                {contact.emailCount > 1
+                                  ? ` +${contact.emailCount - 1} more`
+                                  : ""}
                               </p>
                             ) : null}
                           </div>

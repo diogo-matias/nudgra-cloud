@@ -27,6 +27,11 @@ export type AutomatedMessageDescriptor =
       text: string;
     }
   | {
+      kind: "story_reply_reaction";
+      emoji: string;
+      triggerMessageId: string;
+    }
+  | {
       kind: "quick_reply";
       text: string;
       quickReplies: AutomatedQuickReply[];
@@ -43,7 +48,9 @@ type QueueAutomatedBaseArgs = {
   conversationId: Id<"conversations">;
   contactId: Id<"contacts">;
   automationRuleId: Id<"automationRules"> | null;
+  storyAutomationId?: Id<"storyAutomations"> | null;
   sequenceEnrollmentId: Id<"sequenceEnrollments"> | null;
+  triggerMessageId?: string | null;
 };
 
 type QueueAutomatedMessageArgs = QueueAutomatedBaseArgs & {
@@ -54,6 +61,12 @@ type QueueAutomatedMessageArgs = QueueAutomatedBaseArgs & {
 type QueueAutomatedQuickReplyArgs = QueueAutomatedBaseArgs & {
   messageText: string;
   quickReplies: AutomatedQuickReply[];
+};
+
+type QueueAutomatedReactionArgs = QueueAutomatedBaseArgs & {
+  messageText: string;
+  emoji: string;
+  triggerMessageId: string;
 };
 
 type QueueAutomatedButtonTemplateArgs = QueueAutomatedBaseArgs & {
@@ -113,6 +126,7 @@ async function queueAutomatedMessage(
     conversationId: args.conversationId,
     contactId: args.contactId,
     automationRuleId: args.automationRuleId,
+    storyAutomationId: args.storyAutomationId ?? null,
     sequenceEnrollmentId: args.sequenceEnrollmentId,
     status,
     reason,
@@ -123,6 +137,7 @@ async function queueAutomatedMessage(
     eventTime: now,
     messageText: args.messageText,
     metaMessageId: null,
+    triggerMessageId: args.triggerMessageId?.trim() || null,
   });
 
   if (status === "queued") {
@@ -203,6 +218,33 @@ export async function queueAutomatedQuickReply(
       text: messageText,
       quickReplies,
     },
+  });
+}
+
+export async function queueAutomatedStoryReaction(
+  ctx: MutationCtx,
+  args: QueueAutomatedReactionArgs,
+) {
+  const messageText = args.messageText.trim();
+  const emoji = args.emoji.trim();
+  const triggerMessageId = args.triggerMessageId.trim();
+
+  if (!emoji || !triggerMessageId) {
+    return queueAutomatedTextReply(ctx, {
+      ...args,
+      messageText,
+    });
+  }
+
+  return queueAutomatedMessage(ctx, {
+    ...args,
+    messageText,
+    requestDescriptor: {
+      kind: "story_reply_reaction",
+      emoji,
+      triggerMessageId,
+    },
+    triggerMessageId,
   });
 }
 

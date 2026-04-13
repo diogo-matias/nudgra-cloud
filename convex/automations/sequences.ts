@@ -64,6 +64,7 @@ export async function createSequenceEnrollment(
     automationKind: "sequence",
     automationRuleId: null,
     commentAutomationId: null,
+    storyAutomationId: null,
     sequenceDefinitionId: args.sequenceDefinitionId,
     matchedAt: now,
   });

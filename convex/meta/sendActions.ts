@@ -35,6 +35,11 @@ type ParsedMessageDescriptor =
       text: string;
     }
   | {
+      kind: "story_reply_reaction";
+      emoji: string;
+      triggerMessageId: string;
+    }
+  | {
       kind: "quick_reply";
       text: string;
       quickReplies: ParsedQuickReply[];
@@ -80,6 +85,20 @@ function parseStoredRequestPayload(
       return {
         kind: "text",
         text: parsed.text,
+      };
+    }
+
+    if (
+      parsed.kind === "story_reply_reaction" &&
+      typeof parsed.emoji === "string" &&
+      typeof parsed.triggerMessageId === "string" &&
+      parsed.emoji.trim().length > 0 &&
+      parsed.triggerMessageId.trim().length > 0
+    ) {
+      return {
+        kind: "story_reply_reaction",
+        emoji: parsed.emoji,
+        triggerMessageId: parsed.triggerMessageId,
       };
     }
 
@@ -164,38 +183,76 @@ function parseStoredRequestPayload(
   return null;
 }
 
-function buildMetaMessagePayload(
-  fallbackText: string,
-  requestPayload: string | null,
-) {
-  const parsed = parseStoredRequestPayload(requestPayload);
+function buildMetaSendRequest(args: {
+  recipientId: string;
+  fallbackText: string;
+  requestPayload: string | null;
+}) {
+  const parsed = parseStoredRequestPayload(args.requestPayload);
 
   if (parsed === null) {
     return {
-      text: fallbackText,
+      messaging_type: "RESPONSE" as const,
+      recipient: {
+        id: args.recipientId,
+      },
+      message: {
+        text: args.fallbackText,
+      },
+    };
+  }
+
+  if (parsed.kind === "story_reply_reaction") {
+    return {
+      recipient: {
+        id: args.recipientId,
+      },
+      sender_action: "react" as const,
+      payload: {
+        message_id: parsed.triggerMessageId,
+        reaction: "love" as const,
+      },
     };
   }
 
   if (parsed.kind === "text") {
     return {
-      text: parsed.text,
+      messaging_type: "RESPONSE" as const,
+      recipient: {
+        id: args.recipientId,
+      },
+      message: {
+        text: parsed.text,
+      },
     };
   }
 
   if (parsed.kind === "quick_reply") {
     return {
-      text: parsed.text,
-      quick_replies: parsed.quickReplies,
+      messaging_type: "RESPONSE" as const,
+      recipient: {
+        id: args.recipientId,
+      },
+      message: {
+        text: parsed.text,
+        quick_replies: parsed.quickReplies,
+      },
     };
   }
 
   return {
-    attachment: {
-      type: "template",
-      payload: {
-        template_type: "button",
-        text: parsed.text,
-        buttons: parsed.buttons,
+    messaging_type: "RESPONSE" as const,
+    recipient: {
+      id: args.recipientId,
+    },
+    message: {
+      attachment: {
+        type: "template" as const,
+        payload: {
+          template_type: "button" as const,
+          text: parsed.text,
+          buttons: parsed.buttons,
+        },
       },
     },
   };
@@ -354,16 +411,13 @@ export const performQueuedDelivery = internalAction({
       headers: {
         "content-type": "application/json",
       },
-      body: JSON.stringify({
-        messaging_type: "RESPONSE",
-        recipient: {
-          id: context.contact.instagramUserId,
-        },
-        message: buildMetaMessagePayload(
-          context.attempt.messageText,
-          context.attempt.requestPayload,
-        ),
-      }),
+      body: JSON.stringify(
+        buildMetaSendRequest({
+          recipientId: context.contact.instagramUserId,
+          fallbackText: context.attempt.messageText,
+          requestPayload: context.attempt.requestPayload,
+        }),
+      ),
     });
 
     const responseText = await response.text();

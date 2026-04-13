@@ -29,8 +29,11 @@ import { cn } from "@/lib/utils";
 
 /* ─── helpers ─── */
 
-function sourceLabel(source: "rule" | "comment_automation" | "sequence") {
+function sourceLabel(
+  source: "rule" | "comment_automation" | "story_automation" | "sequence",
+) {
   if (source === "comment_automation") return "Comment automation";
+  if (source === "story_automation") return "Story automation";
   if (source === "sequence") return "Sequence";
   return "Rule";
 }

@@ -55,6 +55,11 @@ type StoredDeliveryRequestPayload =
       text?: string;
     }
   | {
+      kind: "story_reply_reaction";
+      emoji?: string;
+      triggerMessageId?: string;
+    }
+  | {
       kind: "quick_reply";
       text?: string;
       quickReplies?: Array<{
@@ -147,6 +152,10 @@ function humanizePayload(payload: string) {
     return "Following";
   }
 
+  if (payload === "story_automation:follow_gate") {
+    return "I'm following";
+  }
+
   return payload
     .split(/[:_]/g)
     .filter(Boolean)
@@ -184,6 +193,10 @@ function serializeRichContent(
   }
 
   if (descriptor.kind === "text") {
+    return null;
+  }
+
+  if (descriptor.kind === "story_reply_reaction") {
     return null;
   }
 
@@ -254,9 +267,19 @@ function describeConversationMessage(
   const richContent = serializeRichContent(message, deliveryAttempt);
 
   if (message.direction === "outbound") {
+    const eventLabel =
+      message.source === "sequence"
+        ? "sequence"
+        : message.source === "story_automation"
+          ? "story automation"
+          : "rule";
+
     return {
-      displayText: richContent?.bodyText || text || "Automation message sent",
-      eventLabel: message.source === "sequence" ? "sequence" : "rule",
+      displayText:
+        message.messageType === "reaction"
+          ? text || "Reacted to story reply"
+          : richContent?.bodyText || text || "Automation message sent",
+      eventLabel,
       richContent,
     };
   }

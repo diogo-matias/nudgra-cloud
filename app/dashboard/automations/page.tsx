@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import {
   AlertTriangle,
+  BookOpen,
   Plus,
   Zap,
   ToggleLeft,
@@ -22,7 +23,7 @@ export default function AutomationsPage() {
   const accountContext = useQuery(api.accounts.getSelectedAccountContext);
   const selectedAccount = accountContext?.selectedAccount ?? null;
 
-  // Old keyword/DM rules
+  // Keyword DM rules
   const rules =
     useQuery(
       api.automations.rules.listCurrentRules,
@@ -39,13 +40,22 @@ export default function AutomationsPage() {
   const toggleCommentAutomation = useMutation(
     api.automations.commentAutomations.toggleCommentAutomation,
   );
+  const storyAutomations =
+    useQuery(
+      api.automations.storyAutomations.listStoryAutomations,
+      selectedAccount ? { accountId: selectedAccount.id } : "skip",
+    ) ?? [];
+  const toggleStoryAutomation = useMutation(
+    api.automations.storyAutomations.toggleStoryAutomation,
+  );
 
   const activeRulesCount = rules.filter((r) => r.isActive).length;
   const liveCommentCount = commentAutomations.filter(
     (a) => a.status === "live",
   ).length;
-  const totalActive = activeRulesCount + liveCommentCount;
-  const totalCount = rules.length + commentAutomations.length;
+  const liveStoryCount = storyAutomations.filter((a) => a.status === "live").length;
+  const totalActive = activeRulesCount + liveCommentCount + liveStoryCount;
+  const totalCount = rules.length + commentAutomations.length + storyAutomations.length;
 
   if (selectedAccount === null) {
     return (
@@ -123,7 +133,11 @@ export default function AutomationsPage() {
                   href={`/dashboard/automations/comments/${automation.id}`}
                   className={cn(
                     "grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_80px_72px_100px_44px] items-center px-5 py-4 hover:bg-muted/30 transition-colors",
-                    index < commentAutomations.length + rules.length - 1 &&
+                    index <
+                      commentAutomations.length +
+                        storyAutomations.length +
+                        rules.length -
+                        1 &&
                       "border-b border-border",
                   )}
                 >
@@ -274,7 +288,166 @@ export default function AutomationsPage() {
               );
             })}
 
-            {/* Old keyword/DM rules */}
+            {/* Story automations */}
+            {storyAutomations.map((automation, index) => {
+              const ctr =
+                automation.totalSessions > 0
+                  ? (
+                      (automation.buttonClickCount / automation.totalSessions) *
+                      100
+                    ).toFixed(1)
+                  : null;
+
+              return (
+                <Link
+                  key={automation.id}
+                  href={`/dashboard/automations/stories/${automation.id}`}
+                  className={cn(
+                    "grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_80px_72px_100px_44px] items-center px-5 py-4 hover:bg-muted/30 transition-colors",
+                    index < storyAutomations.length + rules.length - 1 &&
+                      "border-b border-border",
+                  )}
+                >
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div
+                      className={cn(
+                        "size-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5",
+                        automation.status === "live"
+                          ? "bg-primary/10"
+                          : "bg-muted",
+                      )}
+                    >
+                      <BookOpen
+                        className={cn(
+                          "size-4",
+                          automation.status === "live"
+                            ? "text-primary"
+                            : "text-muted-foreground",
+                        )}
+                      />
+                    </div>
+                    <div className="min-w-0 flex flex-col gap-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span
+                          className={cn(
+                            "inline-flex items-center text-[10px] font-semibold uppercase tracking-wide rounded px-1.5 py-0.5",
+                            automation.status === "live"
+                              ? "text-emerald-700 bg-emerald-50 border border-emerald-200"
+                              : automation.status === "paused"
+                                ? "text-muted-foreground bg-muted border border-border"
+                                : "text-amber-700 bg-amber-50 border border-amber-200",
+                          )}
+                        >
+                          {automation.status === "live"
+                            ? "Live"
+                            : automation.status === "paused"
+                              ? "Paused"
+                              : "Draft"}
+                        </span>
+                        <p className="text-sm font-semibold text-foreground truncate">
+                          {automation.name}
+                        </p>
+                        <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground bg-muted border border-border rounded px-1.5 py-0.5">
+                          Story automation
+                        </span>
+                        {automation.validationIssues.length > 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                            <AlertTriangle className="size-3" />
+                            Needs fix
+                          </span>
+                        ) : null}
+                        {automation.guardrailTrippedAt ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-destructive/20 bg-destructive/5 px-2 py-0.5 text-[10px] font-medium text-destructive">
+                            <AlertTriangle className="size-3" />
+                            Safety paused
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate max-w-md">
+                        {automation.storyScope === "specific"
+                          ? "Replies to one specific story"
+                          : "Replies to any story"}
+                        {" · "}
+                        {automation.replyFilter === "any_word_or_reaction"
+                          ? "Matches any word or reaction"
+                          : `Matches ${
+                              automation.triggerTokenLabels.length > 0
+                                ? automation.triggerTokenLabels
+                                    .slice(0, 3)
+                                    .map((token) => `"${token}"`)
+                                    .join(", ") +
+                                  (automation.triggerTokenLabels.length > 3
+                                    ? ` +${automation.triggerTokenLabels.length - 3}`
+                                    : "")
+                                : "specific words or reactions"
+                            }`}
+                      </p>
+                      <div className="flex items-center gap-3 sm:hidden text-xs text-muted-foreground mt-0.5">
+                        <span className="tabular-nums font-medium text-foreground">
+                          {automation.triggerCount}
+                        </span>
+                        <span>runs</span>
+                        {ctr !== null ? (
+                          <>
+                            <span className="text-border">|</span>
+                            <span className="tabular-nums font-medium text-foreground">
+                              {ctr}%
+                            </span>
+                            <span>CTR</span>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-sm font-semibold text-foreground tabular-nums text-right hidden sm:block">
+                    {automation.triggerCount}
+                  </p>
+                  <p className="text-sm font-semibold text-foreground tabular-nums text-right hidden sm:block">
+                    {ctr !== null ? `${ctr}%` : "\u2014"}
+                  </p>
+                  <p className="text-xs text-muted-foreground text-right hidden sm:block">
+                    {formatRelativeTime(automation.lastModifiedAt)}
+                  </p>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      disabled={
+                        automation.status !== "live" &&
+                        automation.validationIssues.length > 0
+                      }
+                      title={
+                        automation.status !== "live" &&
+                        automation.validationIssues.length > 0
+                          ? automation.validationIssues[0] ??
+                            "Automation must be fixed before going live."
+                          : automation.status === "live"
+                            ? "Pause automation"
+                            : "Go live"
+                      }
+                      onClick={(event) => {
+                        event.preventDefault();
+                        void toggleStoryAutomation({
+                          accountId: selectedAccount.id,
+                          automationId: automation.id,
+                          status:
+                            automation.status === "live" ? "paused" : "live",
+                        });
+                      }}
+                      className="text-muted-foreground hover:text-foreground transition-colors disabled:cursor-not-allowed disabled:opacity-40 cursor-pointer"
+                    >
+                      {automation.status === "live" ? (
+                        <ToggleRight className="size-5 text-primary" />
+                      ) : (
+                        <ToggleLeft className="size-5" />
+                      )}
+                    </button>
+                  </div>
+                </Link>
+              );
+            })}
+
+            {/* Keyword DM rules */}
             {rules.map((rule, index) => (
               <Link
                 key={rule.id}
@@ -317,14 +490,24 @@ export default function AutomationsPage() {
                         {rule.name}
                       </p>
                       <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground bg-muted border border-border rounded px-1.5 py-0.5">
-                        DM Rule
+                        {rule.triggerType === "story_reply"
+                          ? "Legacy story rule"
+                          : "DM automation"}
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground truncate max-w-md">
-                      {rule.keywords.length > 0
+                      {rule.triggerType === "story_reply"
+                        ? "Legacy story-reply automation rule"
+                        : rule.keywords.length > 0
                         ? `Keyword trigger: ${rule.keywords.slice(0, 3).map((k) => `"${k}"`).join(", ")}${rule.keywords.length > 3 ? ` +${rule.keywords.length - 3}` : ""}`
                         : `Trigger: ${rule.triggerType.replace("_", " ")}`}
-                      {" \u00B7 "}Reply: &quot;{rule.replyText.length > 50 ? rule.replyText.slice(0, 50) + "..." : rule.replyText}&quot;
+                      {" \u00B7 "}DM: &quot;
+                      {(
+                        rule.linkDmText.length > 50
+                          ? rule.linkDmText.slice(0, 50) + "..."
+                          : rule.linkDmText
+                      ) || "No message"}
+                      &quot;
                     </p>
                     {/* Mobile stats */}
                     <div className="flex items-center gap-3 sm:hidden text-xs text-muted-foreground mt-0.5">
@@ -348,7 +531,7 @@ export default function AutomationsPage() {
 
                 {/* Modified */}
                 <p className="text-xs text-muted-foreground text-right hidden sm:block">
-                  {formatRelativeTime(rule.createdAt)}
+                  {formatRelativeTime(rule.lastModifiedAt)}
                 </p>
 
                 {/* Toggle */}

@@ -21,6 +21,7 @@ export const backfillRuleMemberships = migrations.define({
       automationKind: "rule",
       automationRuleId: deliveryAttempt.automationRuleId,
       commentAutomationId: null,
+      storyAutomationId: null,
       sequenceDefinitionId: null,
       matchedAt: deliveryAttempt.eventTime,
     });
@@ -37,6 +38,7 @@ export const backfillSequenceMemberships = migrations.define({
       automationKind: "sequence",
       automationRuleId: null,
       commentAutomationId: null,
+      storyAutomationId: null,
       sequenceDefinitionId: enrollment.sequenceDefinitionId,
       matchedAt: enrollment.enrolledAt,
     });
@@ -53,6 +55,7 @@ export const backfillCommentAutomationMemberships = migrations.define({
       automationKind: "comment_automation",
       automationRuleId: null,
       commentAutomationId: session.commentAutomationId,
+      storyAutomationId: null,
       sequenceDefinitionId: null,
       matchedAt: session.startedAt,
     });

@@ -182,6 +182,21 @@ async function countMemberships(
   });
 }
 
+async function listStoredContactEmails(
+  t: ReturnType<typeof convexTest>,
+  contactId: Id<"contacts">,
+) {
+  return await t.run(async (ctx) => {
+    return await ctx.db
+      .query("contactEmails")
+      .withIndex("by_contact_id_and_last_collected_at", (q) =>
+        q.eq("contactId", contactId),
+      )
+      .order("desc")
+      .take(20);
+  });
+}
+
 describe("contacts and inbox read models", () => {
   beforeEach(() => {
     fetchMock.mockReset();
@@ -388,13 +403,70 @@ describe("contacts and inbox read models", () => {
     expect(memberships).toHaveLength(3);
   });
 
-  it("filters contacts by automation and exposes opt-in timestamps in contact detail", async () => {
+  it("dedupes repeated collected emails and keeps multiple distinct addresses per contact", async () => {
+    const t = convexTest({ schema, modules });
+    const fixture = await seedWorkspace(t);
+    const { contactId, conversationId } = await seedContact(t, fixture, "emails");
+    const ruleId = await seedRule(t, fixture, "Email rule");
+    const commentAutomationId = await seedCommentAutomation(t, fixture);
+
+    await t.run(async (ctx) => {
+      await ctx.runMutation(internal.contacts.upsertCollectedContactEmail, {
+        workspaceId: fixture.workspaceId,
+        instagramAccountId: fixture.instagramAccountId,
+        contactId,
+        conversationId,
+        email: "Lead@Example.com",
+        collectedAt: BASE_TIME,
+        automationKind: "rule",
+        automationRuleId: ruleId,
+        commentAutomationId: null,
+        storyAutomationId: null,
+      });
+      await ctx.runMutation(internal.contacts.upsertCollectedContactEmail, {
+        workspaceId: fixture.workspaceId,
+        instagramAccountId: fixture.instagramAccountId,
+        contactId,
+        conversationId,
+        email: "lead@example.com",
+        collectedAt: BASE_TIME + 60_000,
+        automationKind: "comment_automation",
+        automationRuleId: null,
+        commentAutomationId,
+        storyAutomationId: null,
+      });
+      await ctx.runMutation(internal.contacts.upsertCollectedContactEmail, {
+        workspaceId: fixture.workspaceId,
+        instagramAccountId: fixture.instagramAccountId,
+        contactId,
+        conversationId,
+        email: "second@example.com",
+        collectedAt: BASE_TIME + 120_000,
+        automationKind: "rule",
+        automationRuleId: ruleId,
+        commentAutomationId: null,
+        storyAutomationId: null,
+      });
+    });
+
+    const storedEmails = await listStoredContactEmails(t, contactId);
+    expect(storedEmails).toHaveLength(2);
+    expect(storedEmails[0]?.email).toBe("second@example.com");
+    expect(storedEmails[1]?.email).toBe("lead@example.com");
+    expect(storedEmails[1]?.firstCollectedAt).toBe(BASE_TIME);
+    expect(storedEmails[1]?.lastCollectedAt).toBe(BASE_TIME + 60_000);
+    expect(storedEmails[1]?.automationKind).toBe("comment_automation");
+    expect(storedEmails[1]?.commentAutomationId).toBe(commentAutomationId);
+  });
+
+  it("filters contacts by automation and exposes saved email summaries in contact detail", async () => {
     const t = convexTest({ schema, modules });
     const fixture = await seedWorkspace(t);
     const authT = t.withIdentity({ subject: fixture.userId });
     const first = await seedContact(t, fixture, "first");
     const second = await seedContact(t, fixture, "second");
     const ruleId = await seedRule(t, fixture, "Filter rule");
+    const commentAutomationId = await seedCommentAutomation(t, fixture);
     const sequenceDefinitionId = await seedSequenceDefinition(
       t,
       fixture,
@@ -428,6 +500,30 @@ describe("contacts and inbox read models", () => {
           matchedAt: BASE_TIME + 60_000,
         },
       );
+      await ctx.runMutation(internal.contacts.upsertCollectedContactEmail, {
+        workspaceId: fixture.workspaceId,
+        instagramAccountId: fixture.instagramAccountId,
+        contactId: first.contactId,
+        conversationId: first.conversationId,
+        email: "first@example.com",
+        collectedAt: BASE_TIME + 5_000,
+        automationKind: "rule",
+        automationRuleId: ruleId,
+        commentAutomationId: null,
+        storyAutomationId: null,
+      });
+      await ctx.runMutation(internal.contacts.upsertCollectedContactEmail, {
+        workspaceId: fixture.workspaceId,
+        instagramAccountId: fixture.instagramAccountId,
+        contactId: first.contactId,
+        conversationId: first.conversationId,
+        email: "latest@example.com",
+        collectedAt: BASE_TIME + 10_000,
+        automationKind: "comment_automation",
+        automationRuleId: null,
+        commentAutomationId,
+        storyAutomationId: null,
+      });
     });
 
     const filteredContacts = await authT.query(api.contacts.listContacts, {
@@ -439,6 +535,12 @@ describe("contacts and inbox read models", () => {
     });
     expect(filteredContacts).toHaveLength(1);
     expect(filteredContacts[0]?.id).toBe(first.contactId);
+    expect(filteredContacts[0]?.latestEmail).toBe("latest@example.com");
+    expect(filteredContacts[0]?.emailCount).toBe(2);
+    expect(filteredContacts[0]?.emails).toEqual([
+      "latest@example.com",
+      "first@example.com",
+    ]);
 
     const detail = await authT.query(api.contacts.getContactDetail, {
       accountId: fixture.instagramAccountId,
@@ -446,6 +548,13 @@ describe("contacts and inbox read models", () => {
     });
     expect(detail?.automations[0]?.firstMatchedAt).toBe(BASE_TIME);
     expect(detail?.automations[0]?.lastMatchedAt).toBe(BASE_TIME);
+    expect(detail?.latestEmail).toBe("latest@example.com");
+    expect(detail?.emailCount).toBe(2);
+    expect(detail?.emails).toHaveLength(2);
+    expect(detail?.emails[0]?.email).toBe("latest@example.com");
+    expect(detail?.emails[0]?.sourceLabel).toBe("Comment CTA");
+    expect(detail?.emails[1]?.email).toBe("first@example.com");
+    expect(detail?.emails[1]?.sourceLabel).toBe("Filter rule");
   });
 
   it("applies inbox automation precedence: active comment session, then sequence, then rule", async () => {
