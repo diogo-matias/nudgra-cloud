@@ -39,9 +39,14 @@ type ContactRow = {
   latestConversationId: Id<"conversations"> | null;
 };
 
-function kindLabel(kind: "rule" | "comment_automation" | "sequence") {
+function kindLabel(
+  kind: "rule" | "comment_automation" | "story_automation" | "sequence",
+) {
   if (kind === "comment_automation") {
     return "Comment automation";
+  }
+  if (kind === "story_automation") {
+    return "Story automation";
   }
   if (kind === "sequence") {
     return "Sequence";
@@ -267,7 +272,7 @@ export function ContactDetailDialog({
                   <Section
                     icon={Sparkles}
                     title="Automation opt-ins"
-                    description="Every rule, comment automation, and sequence this contact entered."
+                    description="Every rule, comment automation, story automation, and sequence this contact entered."
                   >
                     <div className="space-y-3">
                       {detail.automations.length === 0 ? (

@@ -46,6 +46,13 @@ function parseAutomationFilter(value: string) {
     };
   }
 
+  if (kind === "story_automation") {
+    return {
+      kind: "story_automation" as const,
+      storyAutomationId: id as Id<"storyAutomations">,
+    };
+  }
+
   if (kind === "sequence") {
     return {
       kind: "sequence" as const,
@@ -56,9 +63,14 @@ function parseAutomationFilter(value: string) {
   return null;
 }
 
-function automationKindLabel(kind: "rule" | "comment_automation" | "sequence") {
+function automationKindLabel(
+  kind: "rule" | "comment_automation" | "story_automation" | "sequence",
+) {
   if (kind === "comment_automation") {
     return "Comment";
+  }
+  if (kind === "story_automation") {
+    return "Story";
   }
   if (kind === "sequence") {
     return "Sequence";
@@ -85,6 +97,7 @@ export default function ContactsPage() {
     ) ?? {
       rules: [],
       commentAutomations: [],
+      storyAutomations: [],
       sequences: [],
     };
   const contactsQuery = useQuery(
@@ -196,6 +209,18 @@ export default function ContactsPage() {
                         <option
                           key={automation.id}
                           value={`comment_automation:${automation.id}`}
+                        >
+                          {automation.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                  {automationFilters.storyAutomations.length > 0 ? (
+                    <optgroup label="Story automations">
+                      {automationFilters.storyAutomations.map((automation) => (
+                        <option
+                          key={automation.id}
+                          value={`story_automation:${automation.id}`}
                         >
                           {automation.label}
                         </option>

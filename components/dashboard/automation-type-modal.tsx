@@ -44,7 +44,7 @@ const AUTOMATION_TYPES: AutomationType[] = [
       "Capture leads when people reply to your stories. Send automated DMs and collect contact information.",
     icon: BookOpen,
     href: "/dashboard/automations/stories/new",
-    available: false,
+    available: true,
   },
 ];
 
@@ -104,11 +104,6 @@ export function AutomationTypeModal({
                     <p className="text-sm font-semibold text-foreground">
                       {type.title}
                     </p>
-                    {!type.available && (
-                      <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground bg-muted border border-border rounded px-1.5 py-0.5">
-                        Coming soon
-                      </span>
-                    )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                     {type.description}

@@ -6,6 +6,7 @@ type ReadModelCtx = QueryCtx | MutationCtx;
 type WorkspaceAutomationMaps = {
   rulesById: Map<Id<"automationRules">, Doc<"automationRules">>;
   commentAutomationsById: Map<Id<"commentAutomations">, Doc<"commentAutomations">>;
+  storyAutomationsById: Map<Id<"storyAutomations">, Doc<"storyAutomations">>;
   sequencesById: Map<Id<"sequenceDefinitions">, Doc<"sequenceDefinitions">>;
 };
 
@@ -26,12 +27,13 @@ export type SerializedMembership = {
   automationId:
     | Id<"automationRules">
     | Id<"commentAutomations">
+    | Id<"storyAutomations">
     | Id<"sequenceDefinitions">
     | null;
 };
 
 export type SerializedConversationAutomationContext = {
-  kind: "rule" | "comment_automation" | "sequence";
+  kind: "rule" | "comment_automation" | "story_automation" | "sequence";
   label: string;
   status: string | null;
   detail: string;
@@ -71,11 +73,45 @@ function formatCommentAutomationStep(
   }
 }
 
+function isStoryAutomationTerminal(
+  step: Doc<"storyAutomationSessions">["currentStep"],
+) {
+  return (
+    step === "completed" ||
+    step === "link_sent" ||
+    step === "guardrail_tripped"
+  );
+}
+
+function formatStoryAutomationStep(
+  step: Doc<"storyAutomationSessions">["currentStep"],
+) {
+  switch (step) {
+    case "follow_gate_sent":
+      return "Follow gate sent";
+    case "awaiting_follow":
+      return "Awaiting follow";
+    case "email_requested":
+      return "Email requested";
+    case "awaiting_email":
+      return "Awaiting email";
+    case "link_sent":
+      return "Link sent";
+    case "guardrail_tripped":
+      return "Paused by guardrail";
+    case "completed":
+      return "Completed";
+    default:
+      return "In progress";
+  }
+}
+
 export async function loadWorkspaceAutomationMaps(
   ctx: ReadModelCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<WorkspaceAutomationMaps> {
-  const [rules, commentAutomations, sequences] = await Promise.all([
+  const [rules, commentAutomations, storyAutomations, sequences] =
+    await Promise.all([
     ctx.db
       .query("automationRules")
       .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspaceId))
@@ -85,15 +121,22 @@ export async function loadWorkspaceAutomationMaps(
       .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspaceId))
       .take(100),
     ctx.db
+      .query("storyAutomations")
+      .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspaceId))
+      .take(100),
+    ctx.db
       .query("sequenceDefinitions")
       .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspaceId))
       .take(100),
-  ]);
+    ]);
 
   return {
     rulesById: new Map(rules.map((rule) => [rule._id, rule])),
     commentAutomationsById: new Map(
       commentAutomations.map((automation) => [automation._id, automation]),
+    ),
+    storyAutomationsById: new Map(
+      storyAutomations.map((automation) => [automation._id, automation]),
     ),
     sequencesById: new Map(
       sequences.map((sequence) => [sequence._id, sequence]),
@@ -186,6 +229,23 @@ export function serializeMembership(
   }
 
   if (
+    membership.automationKind === "story_automation" &&
+    membership.storyAutomationId != null
+  ) {
+    const automation = maps.storyAutomationsById.get(membership.storyAutomationId);
+    return {
+      id: membership._id,
+      kind: membership.automationKind,
+      label: automation?.name ?? "Deleted story automation",
+      status: automation?.status ?? null,
+      conversationId: membership.conversationId,
+      firstMatchedAt: membership.firstMatchedAt,
+      lastMatchedAt: membership.lastMatchedAt,
+      automationId: membership.storyAutomationId,
+    };
+  }
+
+  if (
     membership.automationKind === "sequence" &&
     membership.sequenceDefinitionId !== null
   ) {
@@ -235,6 +295,29 @@ export async function loadConversationAutomationContext(
   conversation: Doc<"conversations">,
   maps: WorkspaceAutomationMaps,
 ): Promise<SerializedConversationAutomationContext | null> {
+  const activeStorySession = (
+    await ctx.db
+      .query("storyAutomationSessions")
+      .withIndex("by_conversation_id", (q) =>
+        q.eq("conversationId", conversation._id),
+      )
+      .order("desc")
+      .take(10)
+  ).find((session) => !isStoryAutomationTerminal(session.currentStep));
+
+  if (activeStorySession) {
+    const automation = maps.storyAutomationsById.get(
+      activeStorySession.storyAutomationId,
+    );
+    return {
+      kind: "story_automation",
+      label: automation?.name ?? "Story automation",
+      status: automation?.status ?? null,
+      detail: formatStoryAutomationStep(activeStorySession.currentStep),
+      timestamp: activeStorySession.lastStepAt,
+    };
+  }
+
   const activeCommentSession = (
     await ctx.db
       .query("commentAutomationSessions")
