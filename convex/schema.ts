@@ -365,6 +365,7 @@ export default defineSchema({
     triggerMessageId: v.optional(nullableString),
   })
     .index("by_workspace_id_and_event_time", ["workspaceId", "eventTime"])
+    .index("by_conversation_id_and_event_time", ["conversationId", "eventTime"])
     .index("by_contact_id", ["contactId"])
     .index("by_status", ["status"])
     .index("by_instagram_account_id_and_event_time", [

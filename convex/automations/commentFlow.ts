@@ -15,6 +15,12 @@ import {
   queueAutomatedTextReply,
 } from "../meta/sendHelpers";
 import {
+  AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
+  AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+  formatGuardrailWindowLabel,
+  getRecentConversationOutboundAttemptCount,
+} from "./guardrails";
+import {
   isMetaAuthError,
   isMetaConsentRequiredError,
   parseMetaApiError,
@@ -57,7 +63,6 @@ type FollowGateInputMode = "button" | "reply";
 
 const FOLLOW_UP_DELAY_MS = 6 * 60 * 60 * 1000;
 const COMMENT_AUTOMATION_SESSION_MESSAGE_LIMIT = 8;
-const COMMENT_AUTOMATION_CONVERSATION_MESSAGE_LIMIT = 10;
 const INVALID_EMAIL_PROMPT =
   "Please send a valid email address so I can send the link.";
 const DEFAULT_LINK_BUTTON_TEXT = "Open link";
@@ -105,29 +110,17 @@ function isTerminalSessionStep(
 }
 
 function buildGuardrailReason(args: {
-  limitType: "session" | "conversation";
+  limitType: "session" | "conversation_window";
   limit: number;
   purpose: string;
+  windowMs?: number;
 }) {
-  return `Safety guardrail paused this automation after ${args.limit} outbound DM${args.limit === 1 ? "" : "s"} in the same ${args.limitType} while sending ${args.purpose}.`;
-}
+  const suffix = args.limit === 1 ? "" : "s";
+  if (args.limitType === "session") {
+    return `Safety guardrail paused this automation after ${args.limit} outbound DM${suffix} in the same session while sending ${args.purpose}.`;
+  }
 
-async function getConversationOutboundMessageCount(
-  ctx: MutationCtx,
-  session: Pick<Doc<"commentAutomationSessions">, "conversationId">,
-) {
-  const sessions = await ctx.db
-    .query("commentAutomationSessions")
-    .withIndex("by_conversation_id", (q) =>
-      q.eq("conversationId", session.conversationId),
-    )
-    .order("desc")
-    .take(20);
-
-  return sessions.reduce(
-    (total, candidate) => total + (candidate.outboundMessageCount ?? 0),
-    0,
-  );
+  return `Safety guardrail paused this automation after ${args.limit} outbound DM${suffix} in the same conversation within ${formatGuardrailWindowLabel(args.windowMs ?? AUTOMATION_CONVERSATION_BURST_WINDOW_MS)} while sending ${args.purpose}.`;
 }
 
 async function tripCommentAutomationGuardrail(
@@ -192,21 +185,23 @@ async function queueGuardedCommentAutomationTextReply(
     return false;
   }
 
-  const conversationOutboundCount = await getConversationOutboundMessageCount(
-    ctx,
-    session,
-  );
+  const conversationOutboundCount =
+    await getRecentConversationOutboundAttemptCount(
+      ctx,
+      session.conversationId,
+    );
   if (
     conversationOutboundCount + 1 >
-    COMMENT_AUTOMATION_CONVERSATION_MESSAGE_LIMIT
+    AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT
   ) {
     await tripCommentAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
       reason: buildGuardrailReason({
-        limitType: "conversation",
-        limit: COMMENT_AUTOMATION_CONVERSATION_MESSAGE_LIMIT,
+        limitType: "conversation_window",
+        limit: AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
         purpose: args.purpose,
+        windowMs: AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
       }),
     });
     return false;
@@ -266,21 +261,23 @@ async function queueGuardedCommentAutomationButtonTemplate(
     return false;
   }
 
-  const conversationOutboundCount = await getConversationOutboundMessageCount(
-    ctx,
-    session,
-  );
+  const conversationOutboundCount =
+    await getRecentConversationOutboundAttemptCount(
+      ctx,
+      session.conversationId,
+    );
   if (
     conversationOutboundCount + 1 >
-    COMMENT_AUTOMATION_CONVERSATION_MESSAGE_LIMIT
+    AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT
   ) {
     await tripCommentAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
       reason: buildGuardrailReason({
-        limitType: "conversation",
-        limit: COMMENT_AUTOMATION_CONVERSATION_MESSAGE_LIMIT,
+        limitType: "conversation_window",
+        limit: AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
         purpose: args.purpose,
+        windowMs: AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
       }),
     });
     return false;

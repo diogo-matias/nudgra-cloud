@@ -21,6 +21,12 @@ import {
   parseMetaApiError,
 } from "../meta/authShared";
 import {
+  AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
+  AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+  formatGuardrailWindowLabel,
+  getRecentConversationOutboundAttemptCount,
+} from "./guardrails";
+import {
   extractEmail,
   getEffectiveStoryLinkDmText,
   getStoryAutomationValidationIssues as getSharedStoryAutomationValidationIssues,
@@ -79,7 +85,6 @@ type FollowGateCheckStatus = "following" | "not_following" | "consent_required";
 type FollowGateInputMode = "button" | "reply";
 
 const STORY_AUTOMATION_SESSION_MESSAGE_LIMIT = 8;
-const STORY_AUTOMATION_CONVERSATION_MESSAGE_LIMIT = 10;
 const FOLLOW_GATE_POSTBACK_PAYLOAD = "story_automation:follow_gate";
 
 function getFollowGateInputMode(consentRequired: boolean): FollowGateInputMode {
@@ -116,11 +121,17 @@ function isTerminalSessionStep(
 }
 
 function buildGuardrailReason(args: {
-  limitType: "session" | "conversation";
+  limitType: "session" | "conversation_window";
   limit: number;
   purpose: string;
+  windowMs?: number;
 }) {
-  return `Safety guardrail paused this story automation after ${args.limit} outbound DM${args.limit === 1 ? "" : "s"} in the same ${args.limitType} while sending ${args.purpose}.`;
+  const suffix = args.limit === 1 ? "" : "s";
+  if (args.limitType === "session") {
+    return `Safety guardrail paused this story automation after ${args.limit} outbound DM${suffix} in the same session while sending ${args.purpose}.`;
+  }
+
+  return `Safety guardrail paused this story automation after ${args.limit} outbound DM${suffix} in the same conversation within ${formatGuardrailWindowLabel(args.windowMs ?? AUTOMATION_CONVERSATION_BURST_WINDOW_MS)} while sending ${args.purpose}.`;
 }
 
 function getLinkButtons(
@@ -176,24 +187,6 @@ export function getStoryAutomationValidationIssues(
     linkButtons: validationLinkButtons,
     followUpEnabled: automation.followUpEnabled ?? false,
   });
-}
-
-async function getConversationOutboundMessageCount(
-  ctx: MutationCtx,
-  session: Pick<Doc<"storyAutomationSessions">, "conversationId">,
-) {
-  const sessions = await ctx.db
-    .query("storyAutomationSessions")
-    .withIndex("by_conversation_id", (q) =>
-      q.eq("conversationId", session.conversationId),
-    )
-    .order("desc")
-    .take(20);
-
-  return sessions.reduce(
-    (total, candidate) => total + (candidate.outboundMessageCount ?? 0),
-    0,
-  );
 }
 
 async function tripStoryAutomationGuardrail(
@@ -258,21 +251,23 @@ async function queueGuardedStoryAutomationTextReply(
     return false;
   }
 
-  const conversationOutboundCount = await getConversationOutboundMessageCount(
-    ctx,
-    session,
-  );
+  const conversationOutboundCount =
+    await getRecentConversationOutboundAttemptCount(
+      ctx,
+      session.conversationId,
+    );
   if (
     conversationOutboundCount + 1 >
-    STORY_AUTOMATION_CONVERSATION_MESSAGE_LIMIT
+    AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT
   ) {
     await tripStoryAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
       reason: buildGuardrailReason({
-        limitType: "conversation",
-        limit: STORY_AUTOMATION_CONVERSATION_MESSAGE_LIMIT,
+        limitType: "conversation_window",
+        limit: AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
         purpose: args.purpose,
+        windowMs: AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
       }),
     });
     return false;
@@ -333,21 +328,23 @@ async function queueGuardedStoryAutomationButtonTemplate(
     return false;
   }
 
-  const conversationOutboundCount = await getConversationOutboundMessageCount(
-    ctx,
-    session,
-  );
+  const conversationOutboundCount =
+    await getRecentConversationOutboundAttemptCount(
+      ctx,
+      session.conversationId,
+    );
   if (
     conversationOutboundCount + 1 >
-    STORY_AUTOMATION_CONVERSATION_MESSAGE_LIMIT
+    AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT
   ) {
     await tripStoryAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
       reason: buildGuardrailReason({
-        limitType: "conversation",
-        limit: STORY_AUTOMATION_CONVERSATION_MESSAGE_LIMIT,
+        limitType: "conversation_window",
+        limit: AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
         purpose: args.purpose,
+        windowMs: AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
       }),
     });
     return false;
@@ -406,21 +403,23 @@ async function queueGuardedStoryAutomationReaction(
     return false;
   }
 
-  const conversationOutboundCount = await getConversationOutboundMessageCount(
-    ctx,
-    session,
-  );
+  const conversationOutboundCount =
+    await getRecentConversationOutboundAttemptCount(
+      ctx,
+      session.conversationId,
+    );
   if (
     conversationOutboundCount + 1 >
-    STORY_AUTOMATION_CONVERSATION_MESSAGE_LIMIT
+    AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT
   ) {
     await tripStoryAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
       reason: buildGuardrailReason({
-        limitType: "conversation",
-        limit: STORY_AUTOMATION_CONVERSATION_MESSAGE_LIMIT,
+        limitType: "conversation_window",
+        limit: AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
         purpose: args.purpose,
+        windowMs: AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
       }),
     });
     return false;

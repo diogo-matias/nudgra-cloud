@@ -20,6 +20,12 @@ import {
   parseMetaApiError,
 } from "../meta/authShared";
 import {
+  AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
+  AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+  formatGuardrailWindowLabel,
+  getRecentConversationOutboundAttemptCount,
+} from "./guardrails";
+import {
   extractEmail,
   getAutomationRuleValidationIssues,
   getEffectiveRuleLinkDmText,
@@ -64,7 +70,6 @@ type FollowGateCheckStatus = "following" | "not_following" | "consent_required";
 type FollowGateInputMode = "button" | "reply";
 
 const RULE_AUTOMATION_SESSION_MESSAGE_LIMIT = 8;
-const RULE_AUTOMATION_CONVERSATION_MESSAGE_LIMIT = 10;
 const FOLLOW_GATE_POSTBACK_PAYLOAD = "rule_automation:follow_gate";
 
 function getFollowGateInputMode(consentRequired: boolean): FollowGateInputMode {
@@ -101,11 +106,17 @@ function isTerminalSessionStep(
 }
 
 function buildGuardrailReason(args: {
-  limitType: "session" | "conversation";
+  limitType: "session" | "conversation_window";
   limit: number;
   purpose: string;
+  windowMs?: number;
 }) {
-  return `Safety guardrail stopped this DM automation after ${args.limit} outbound DM${args.limit === 1 ? "" : "s"} in the same ${args.limitType} while sending ${args.purpose}.`;
+  const suffix = args.limit === 1 ? "" : "s";
+  if (args.limitType === "session") {
+    return `Safety guardrail stopped this DM automation after ${args.limit} outbound DM${suffix} in the same session while sending ${args.purpose}.`;
+  }
+
+  return `Safety guardrail stopped this DM automation after ${args.limit} outbound DM${suffix} in the same conversation within ${formatGuardrailWindowLabel(args.windowMs ?? AUTOMATION_CONVERSATION_BURST_WINDOW_MS)} while sending ${args.purpose}.`;
 }
 
 function getRuleAutomationValidationIssues(
@@ -119,24 +130,6 @@ function getRuleAutomationValidationIssues(
     linkButtons: automation.linkButtons ?? [],
     followUpEnabled: automation.followUpEnabled ?? false,
   });
-}
-
-async function getConversationOutboundMessageCount(
-  ctx: MutationCtx,
-  session: Pick<Doc<"automationRuleSessions">, "conversationId">,
-) {
-  const sessions = await ctx.db
-    .query("automationRuleSessions")
-    .withIndex("by_conversation_id", (q) =>
-      q.eq("conversationId", session.conversationId),
-    )
-    .order("desc")
-    .take(20);
-
-  return sessions.reduce(
-    (total, candidate) => total + (candidate.outboundMessageCount ?? 0),
-    0,
-  );
 }
 
 async function tripRuleAutomationGuardrail(
@@ -191,20 +184,22 @@ async function queueGuardedRuleAutomationTextReply(
     return false;
   }
 
-  const conversationOutboundCount = await getConversationOutboundMessageCount(
-    ctx,
-    session,
-  );
+  const conversationOutboundCount =
+    await getRecentConversationOutboundAttemptCount(
+      ctx,
+      session.conversationId,
+    );
   if (
     conversationOutboundCount + 1 >
-    RULE_AUTOMATION_CONVERSATION_MESSAGE_LIMIT
+    AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT
   ) {
     await tripRuleAutomationGuardrail(ctx, {
       session,
       reason: buildGuardrailReason({
-        limitType: "conversation",
-        limit: RULE_AUTOMATION_CONVERSATION_MESSAGE_LIMIT,
+        limitType: "conversation_window",
+        limit: AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
         purpose: args.purpose,
+        windowMs: AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
       }),
     });
     return false;
@@ -263,20 +258,22 @@ async function queueGuardedRuleAutomationButtonTemplate(
     return false;
   }
 
-  const conversationOutboundCount = await getConversationOutboundMessageCount(
-    ctx,
-    session,
-  );
+  const conversationOutboundCount =
+    await getRecentConversationOutboundAttemptCount(
+      ctx,
+      session.conversationId,
+    );
   if (
     conversationOutboundCount + 1 >
-    RULE_AUTOMATION_CONVERSATION_MESSAGE_LIMIT
+    AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT
   ) {
     await tripRuleAutomationGuardrail(ctx, {
       session,
       reason: buildGuardrailReason({
-        limitType: "conversation",
-        limit: RULE_AUTOMATION_CONVERSATION_MESSAGE_LIMIT,
+        limitType: "conversation_window",
+        limit: AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
         purpose: args.purpose,
+        windowMs: AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
       }),
     });
     return false;
