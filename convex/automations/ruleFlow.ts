@@ -497,6 +497,18 @@ export async function advanceRuleAutomationSession(
         collectedEmail: email,
         lastStepAt: now,
       });
+      await ctx.runMutation(internal.contacts.upsertCollectedContactEmail, {
+        workspaceId: session.workspaceId,
+        instagramAccountId: session.instagramAccountId,
+        contactId: session.contactId,
+        conversationId: session.conversationId,
+        email,
+        collectedAt: now,
+        automationKind: "rule",
+        automationRuleId: automation._id,
+        commentAutomationId: null,
+        storyAutomationId: null,
+      });
 
       await sendLinkDm(ctx, { sessionId, automation });
       break;

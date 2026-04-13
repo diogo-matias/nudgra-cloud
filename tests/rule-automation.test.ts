@@ -198,6 +198,21 @@ async function startSession(
   });
 }
 
+async function listStoredContactEmails(
+  t: ReturnType<typeof convexTest>,
+  contactId: Id<"contacts">,
+) {
+  return await t.run(async (ctx) => {
+    return await ctx.db
+      .query("contactEmails")
+      .withIndex("by_contact_id_and_last_collected_at", (q) =>
+        q.eq("contactId", contactId),
+      )
+      .order("desc")
+      .take(10);
+  });
+}
+
 describe("keyword DM automation rules", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -379,7 +394,12 @@ describe("keyword DM automation rules", () => {
       followUpText: "Checking in",
     });
 
-    const { sessionId } = await startSession(t, ruleId, fixture, "full");
+    const { sessionId, contactId } = await startSession(
+      t,
+      ruleId,
+      fixture,
+      "full",
+    );
 
     fetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ is_user_follow_business: true }), {
@@ -421,6 +441,12 @@ describe("keyword DM automation rules", () => {
     );
     expect(trackedLinks).toHaveLength(1);
     expect(trackedLinks[0]?.destinationUrl).toBe("https://example.com/guide");
+
+    const storedEmails = await listStoredContactEmails(t, contactId);
+    expect(storedEmails).toHaveLength(1);
+    expect(storedEmails[0]?.email).toBe("user@example.com");
+    expect(storedEmails[0]?.automationKind).toBe("rule");
+    expect(storedEmails[0]?.automationRuleId).toBe(ruleId);
   });
 
   it("suppresses clicked follow-ups and sends the uncaptured follow-up only once", async () => {

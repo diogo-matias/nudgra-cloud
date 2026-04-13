@@ -234,6 +234,21 @@ async function startSession(
   });
 }
 
+async function listStoredContactEmails(
+  t: ReturnType<typeof convexTest>,
+  contactId: Id<"contacts">,
+) {
+  return await t.run(async (ctx) => {
+    return await ctx.db
+      .query("contactEmails")
+      .withIndex("by_contact_id_and_last_collected_at", (q) =>
+        q.eq("contactId", contactId),
+      )
+      .order("desc")
+      .take(10);
+  });
+}
+
 describe("comment automation reliability", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -460,7 +475,12 @@ describe("comment automation reliability", () => {
       followUpText: "Checking in",
     });
 
-    const { sessionId } = await startSession(t, automationId, fixture, "alpha");
+    const { sessionId, contactId } = await startSession(
+      t,
+      automationId,
+      fixture,
+      "alpha",
+    );
 
     let session = await t.run((ctx) => ctx.db.get(sessionId));
     expect(session?.currentStep).toBe("awaiting_button_click");
@@ -527,6 +547,12 @@ describe("comment automation reliability", () => {
     );
     expect(trackedLinks).toHaveLength(1);
     expect(trackedLinks[0]?.destinationUrl).toBe("https://example.com/guide");
+
+    const storedEmails = await listStoredContactEmails(t, contactId);
+    expect(storedEmails).toHaveLength(1);
+    expect(storedEmails[0]?.email).toBe("user@example.com");
+    expect(storedEmails[0]?.automationKind).toBe("comment_automation");
+    expect(storedEmails[0]?.commentAutomationId).toBe(automationId);
   });
 
   it("ignores non-interactive webhook items and duplicate follow-gate deliveries", async () => {

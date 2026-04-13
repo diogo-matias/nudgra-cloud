@@ -25,6 +25,12 @@ const nullableSequenceDefinitionId = v.union(
   v.id("sequenceDefinitions"),
   v.null(),
 );
+const nullableContactEmailAutomationKind = v.union(
+  v.literal("rule"),
+  v.literal("comment_automation"),
+  v.literal("story_automation"),
+  v.null(),
+);
 const nullableSequenceEnrollmentId = v.union(
   v.id("sequenceEnrollments"),
   v.null(),
@@ -138,6 +144,24 @@ export default defineSchema({
       "instagramUserId",
     ])
     .index("by_workspace_id_and_username", ["workspaceId", "username"]),
+  contactEmails: defineTable({
+    workspaceId: v.id("workspaces"),
+    instagramAccountId: v.id("instagramAccounts"),
+    contactId: v.id("contacts"),
+    email: v.string(),
+    firstCollectedAt: v.number(),
+    lastCollectedAt: v.number(),
+    automationKind: nullableContactEmailAutomationKind,
+    automationRuleId: nullableAutomationRuleId,
+    commentAutomationId: nullableCommentAutomationId,
+    storyAutomationId: nullableStoryAutomationId,
+    conversationId: nullableConversationId,
+  })
+    .index("by_contact_id_and_last_collected_at", [
+      "contactId",
+      "lastCollectedAt",
+    ])
+    .index("by_contact_id_and_email", ["contactId", "email"]),
   conversations: defineTable({
     workspaceId: v.id("workspaces"),
     instagramAccountId: v.id("instagramAccounts"),
