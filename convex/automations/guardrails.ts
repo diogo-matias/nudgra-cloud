@@ -7,10 +7,52 @@ export const AUTOMATION_CONVERSATION_BURST_WINDOW_MS = 15 * 60 * 1000;
 const MAX_RECENT_CONVERSATION_ATTEMPTS =
   AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT * 4;
 
-export function shouldCountDeliveryAttemptForConversationGuardrail(
-  status: Doc<"deliveryAttempts">["status"],
+export type ConversationGuardrailAutomationType =
+  | "comment_automation"
+  | "rule"
+  | "story_automation"
+  | "sequence";
+
+type GuardrailAttempt = Pick<
+  Doc<"deliveryAttempts">,
+  "automationRuleId" | "storyAutomationId" | "sequenceEnrollmentId" | "status"
+>;
+
+function isDeliveryAttemptStatusCountedForConversationGuardrail(
+  status: GuardrailAttempt["status"],
 ) {
   return status === "queued" || status === "sent" || status === "failed";
+}
+
+export function getDeliveryAttemptAutomationType(
+  attempt: Pick<
+    GuardrailAttempt,
+    "automationRuleId" | "storyAutomationId" | "sequenceEnrollmentId"
+  >,
+): ConversationGuardrailAutomationType {
+  if (attempt.sequenceEnrollmentId !== null) {
+    return "sequence";
+  }
+
+  if ((attempt.storyAutomationId ?? null) !== null) {
+    return "story_automation";
+  }
+
+  if (attempt.automationRuleId !== null) {
+    return "rule";
+  }
+
+  return "comment_automation";
+}
+
+export function shouldCountDeliveryAttemptForConversationGuardrail(args: {
+  attempt: GuardrailAttempt;
+  automationType: ConversationGuardrailAutomationType;
+}) {
+  return (
+    isDeliveryAttemptStatusCountedForConversationGuardrail(args.attempt.status) &&
+    getDeliveryAttemptAutomationType(args.attempt) === args.automationType
+  );
 }
 
 export function formatGuardrailWindowLabel(windowMs: number) {
@@ -27,6 +69,7 @@ export function formatGuardrailWindowLabel(windowMs: number) {
 export async function getRecentConversationOutboundAttemptCount(
   ctx: MutationCtx,
   conversationId: Id<"conversations">,
+  automationType: ConversationGuardrailAutomationType,
 ) {
   const windowStart = Date.now() - AUTOMATION_CONVERSATION_BURST_WINDOW_MS;
   const recentAttempts = await ctx.db
@@ -40,7 +83,10 @@ export async function getRecentConversationOutboundAttemptCount(
   return recentAttempts.reduce(
     (total, attempt) =>
       total +
-      (shouldCountDeliveryAttemptForConversationGuardrail(attempt.status)
+      (shouldCountDeliveryAttemptForConversationGuardrail({
+        attempt,
+        automationType,
+      })
         ? 1
         : 0),
     0,

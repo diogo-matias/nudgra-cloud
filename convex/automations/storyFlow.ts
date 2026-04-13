@@ -131,7 +131,7 @@ function buildGuardrailReason(args: {
     return `Safety guardrail paused this story automation after ${args.limit} outbound DM${suffix} in the same session while sending ${args.purpose}.`;
   }
 
-  return `Safety guardrail paused this story automation after ${args.limit} outbound DM${suffix} in the same conversation within ${formatGuardrailWindowLabel(args.windowMs ?? AUTOMATION_CONVERSATION_BURST_WINDOW_MS)} while sending ${args.purpose}.`;
+  return `Safety guardrail paused this story automation after ${args.limit} outbound DM${suffix} from the same automation type in the same conversation within ${formatGuardrailWindowLabel(args.windowMs ?? AUTOMATION_CONVERSATION_BURST_WINDOW_MS)} while sending ${args.purpose}.`;
 }
 
 function getLinkButtons(
@@ -255,6 +255,7 @@ async function queueGuardedStoryAutomationTextReply(
     await getRecentConversationOutboundAttemptCount(
       ctx,
       session.conversationId,
+      "story_automation",
     );
   if (
     conversationOutboundCount + 1 >
@@ -332,6 +333,7 @@ async function queueGuardedStoryAutomationButtonTemplate(
     await getRecentConversationOutboundAttemptCount(
       ctx,
       session.conversationId,
+      "story_automation",
     );
   if (
     conversationOutboundCount + 1 >
@@ -407,6 +409,7 @@ async function queueGuardedStoryAutomationReaction(
     await getRecentConversationOutboundAttemptCount(
       ctx,
       session.conversationId,
+      "story_automation",
     );
   if (
     conversationOutboundCount + 1 >

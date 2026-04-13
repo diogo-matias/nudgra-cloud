@@ -116,7 +116,7 @@ function buildGuardrailReason(args: {
     return `Safety guardrail stopped this DM automation after ${args.limit} outbound DM${suffix} in the same session while sending ${args.purpose}.`;
   }
 
-  return `Safety guardrail stopped this DM automation after ${args.limit} outbound DM${suffix} in the same conversation within ${formatGuardrailWindowLabel(args.windowMs ?? AUTOMATION_CONVERSATION_BURST_WINDOW_MS)} while sending ${args.purpose}.`;
+  return `Safety guardrail stopped this DM automation after ${args.limit} outbound DM${suffix} from the same automation type in the same conversation within ${formatGuardrailWindowLabel(args.windowMs ?? AUTOMATION_CONVERSATION_BURST_WINDOW_MS)} while sending ${args.purpose}.`;
 }
 
 function getRuleAutomationValidationIssues(
@@ -188,6 +188,7 @@ async function queueGuardedRuleAutomationTextReply(
     await getRecentConversationOutboundAttemptCount(
       ctx,
       session.conversationId,
+      "rule",
     );
   if (
     conversationOutboundCount + 1 >
@@ -262,6 +263,7 @@ async function queueGuardedRuleAutomationButtonTemplate(
     await getRecentConversationOutboundAttemptCount(
       ctx,
       session.conversationId,
+      "rule",
     );
   if (
     conversationOutboundCount + 1 >
