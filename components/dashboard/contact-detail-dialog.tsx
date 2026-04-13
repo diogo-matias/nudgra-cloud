@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { AtSign, Clock3, ExternalLink, Mail, Sparkles } from "lucide-react";
+import { AtSign, Clock3, ExternalLink, Mail, Sparkles, Tag } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Button } from "@/components/ui/button";
@@ -270,6 +270,44 @@ export function ContactDetailDialog({
                   </Section>
 
                   <Section
+                    icon={Mail}
+                    title="Saved emails"
+                    description="Distinct email addresses collected for this contact across automations."
+                  >
+                    <div className="space-y-3">
+                      {detail.emails.length === 0 ? (
+                        <EmptyLine text="No emails collected yet." />
+                      ) : (
+                        detail.emails.map((emailRecord) => (
+                          <div
+                            key={emailRecord.id}
+                            className="rounded-2xl border border-border bg-background p-4"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium text-foreground">
+                                {emailRecord.email}
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                {emailRecord.sourceLabel}
+                              </span>
+                            </div>
+                            <div className="mt-2 grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
+                              <span>
+                                First collected:{" "}
+                                {formatDateTime(emailRecord.firstCollectedAt)}
+                              </span>
+                              <span>
+                                Last collected:{" "}
+                                {formatDateTime(emailRecord.lastCollectedAt)}
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </Section>
+
+                  <Section
                     icon={Sparkles}
                     title="Automation opt-ins"
                     description="Every rule, comment automation, story automation, and sequence this contact entered."
@@ -352,7 +390,7 @@ export function ContactDetailDialog({
                   </Section>
 
                   <Section
-                    icon={Mail}
+                    icon={Tag}
                     title="Tags"
                     description="Current segmentation labels applied to the contact."
                   >
