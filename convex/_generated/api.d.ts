@@ -35,6 +35,7 @@ import type * as meta_commentWebhooks from "../meta/commentWebhooks.js";
 import type * as meta_comments from "../meta/comments.js";
 import type * as meta_config from "../meta/config.js";
 import type * as meta_contactProfiles from "../meta/contactProfiles.js";
+import type * as meta_deliveryPolicy from "../meta/deliveryPolicy.js";
 import type * as meta_history from "../meta/history.js";
 import type * as meta_media from "../meta/media.js";
 import type * as meta_mediaQueries from "../meta/mediaQueries.js";
@@ -83,6 +84,7 @@ declare const fullApi: ApiFromModules<{
   "meta/comments": typeof meta_comments;
   "meta/config": typeof meta_config;
   "meta/contactProfiles": typeof meta_contactProfiles;
+  "meta/deliveryPolicy": typeof meta_deliveryPolicy;
   "meta/history": typeof meta_history;
   "meta/media": typeof meta_media;
   "meta/mediaQueries": typeof meta_mediaQueries;

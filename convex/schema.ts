@@ -203,6 +203,7 @@ export default defineSchema({
     source: v.union(
       v.literal("webhook"),
       v.literal("rule"),
+      v.literal("comment_automation"),
       v.literal("story_automation"),
       v.literal("sequence"),
     ),
@@ -346,6 +347,11 @@ export default defineSchema({
     automationRuleId: nullableAutomationRuleId,
     storyAutomationId: v.optional(nullableStoryAutomationId),
     sequenceEnrollmentId: nullableSequenceEnrollmentId,
+    deliveryKind: v.optional(
+      v.union(v.literal("response_dm"), v.literal("private_reply")),
+    ),
+    privateReplyCommentId: v.optional(nullableString),
+    privateReplyExpiresAt: v.optional(nullableNumber),
     status: v.union(
       v.literal("queued"),
       v.literal("blocked_auth"),

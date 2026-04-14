@@ -3,7 +3,10 @@ import { convexTest } from "convex-test";
 import { internal } from "@/convex/_generated/api";
 import schema from "@/convex/schema";
 import { modules } from "@/convex/test.setup";
-import { queueAutomatedStoryReaction } from "@/convex/meta/sendHelpers";
+import {
+  queueAutomatedPrivateReplyButtonTemplate,
+  queueAutomatedStoryReaction,
+} from "@/convex/meta/sendHelpers";
 
 const BASE_TIME = new Date("2026-04-12T10:00:00.000Z").getTime();
 const fetchMock = vi.fn<typeof fetch>();
@@ -150,6 +153,92 @@ describe("meta send actions", () => {
       messageType: "reaction",
       text: "Reacted with ❤️",
       triggerMessageId: "mid.story.reply",
+    });
+  });
+
+  it("sends private replies with recipient.comment_id and no messaging_type", async () => {
+    const t = convexTest({ schema, modules });
+    const fixture = await seedWorkspace(t);
+
+    await t.run(async (ctx) => {
+      await queueAutomatedPrivateReplyButtonTemplate(ctx as never, {
+        workspaceId: fixture.workspaceId,
+        instagramAccountId: fixture.instagramAccountId,
+        conversationId: fixture.conversationId,
+        contactId: fixture.contactId,
+        automationRuleId: null,
+        storyAutomationId: null,
+        sequenceEnrollmentId: null,
+        messageText: "Tap below to confirm",
+        commentId: "comment_private_reply",
+        commentCreatedAt: BASE_TIME,
+        buttons: [
+          {
+            type: "postback",
+            title: "Send me the link",
+            payload: "comment_automation:opening_dm",
+          },
+        ],
+      });
+    });
+
+    const deliveryAttempt = await t.run(async (ctx) => {
+      return await ctx.db.query("deliveryAttempts").unique();
+    });
+
+    if (!deliveryAttempt) {
+      throw new Error("Expected queued private reply delivery attempt.");
+    }
+
+    expect(deliveryAttempt.deliveryKind).toBe("private_reply");
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ message_id: "mid.private.reply" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await t.action(internal.meta.sendActions.performQueuedDelivery, {
+      deliveryAttemptId: deliveryAttempt._id,
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const request = fetchMock.mock.calls[0];
+    const init = request?.[1];
+    const rawBody =
+      typeof init?.body === "string" ? init.body : JSON.stringify(init?.body);
+    const parsedBody = JSON.parse(rawBody);
+
+    expect(parsedBody).toEqual({
+      recipient: { comment_id: "comment_private_reply" },
+      message: {
+        attachment: {
+          type: "template",
+          payload: {
+            template_type: "button",
+            text: "Tap below to confirm",
+            buttons: [
+              {
+                type: "postback",
+                title: "Send me the link",
+                payload: "comment_automation:opening_dm",
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(parsedBody).not.toHaveProperty("messaging_type");
+
+    const storedMessages = await t.run((ctx) =>
+      ctx.db.query("messages").collect(),
+    );
+    expect(storedMessages).toHaveLength(1);
+    expect(storedMessages[0]).toMatchObject({
+      direction: "outbound",
+      source: "comment_automation",
+      text: "Tap below to confirm\n[Send me the link]",
     });
   });
 });

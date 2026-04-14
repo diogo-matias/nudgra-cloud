@@ -75,7 +75,7 @@ function AccountAvatar({
 
   return (
     <div
-      className={`${sizeClasses[size]} rounded-full bg-gradient-to-br from-purple-500 to-pink-500 shrink-0`}
+      className={`${sizeClasses[size]} rounded-full bg-linear-to-br from-purple-500 to-pink-500 shrink-0`}
     />
   );
 }
@@ -337,11 +337,13 @@ function CommentsPreview({
 
 function buildDmMessages(config: PreviewConfig): PreviewMessage[] {
   const messages: PreviewMessage[] = [];
+  const initialMetaLabel = "Private reply after comment";
 
   if (config.openingDmEnabled && config.openingDmText) {
     messages.push({
       side: "left",
       text: config.openingDmText,
+      metaLabel: initialMetaLabel,
       buttons: config.openingDmButtonText
         ? [{ label: config.openingDmButtonText }]
         : undefined,
@@ -359,13 +361,18 @@ function buildDmMessages(config: PreviewConfig): PreviewMessage[] {
     messages.push({
       side: "left",
       text: config.followGateText,
+      metaLabel: messages.length === 0 ? initialMetaLabel : undefined,
       buttons: FOLLOW_GATE_BUTTONS,
     });
     messages.push({ side: "right", text: "I'm following" });
   }
 
   if (config.emailCollectionEnabled && config.emailCollectionText) {
-    messages.push({ side: "left", text: config.emailCollectionText });
+    messages.push({
+      side: "left",
+      text: config.emailCollectionText,
+      metaLabel: messages.length === 0 ? initialMetaLabel : undefined,
+    });
     messages.push({ side: "right", text: "example@mail.com" });
   }
 
@@ -373,6 +380,7 @@ function buildDmMessages(config: PreviewConfig): PreviewMessage[] {
     messages.push({
       side: "left",
       text: config.linkDmText || "Tap below to open your link.",
+      metaLabel: messages.length === 0 ? initialMetaLabel : undefined,
       buttons: config.linkButtons.length > 0
         ? config.linkButtons.map((button) => ({ label: button.label }))
         : undefined,
@@ -462,7 +470,7 @@ function DmPreview({
       </div>
 
       <div className="flex items-center gap-2 border-t border-white/10 px-3 py-2.5">
-        <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-blue-500 to-blue-400">
+        <div className="flex size-6 shrink-0 items-center justify-center rounded-full bg-linear-to-tr from-blue-500 to-blue-400">
           <svg
             className="size-3.5 text-white"
             fill="none"

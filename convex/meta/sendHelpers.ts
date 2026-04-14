@@ -2,6 +2,7 @@ import { internal } from "../_generated/api";
 import { Id } from "../_generated/dataModel";
 import { MutationCtx } from "../_generated/server";
 import { canUseAccountToken } from "./authShared";
+import { getDeliveryExpiredReason } from "./deliveryPolicy";
 
 export type AutomatedQuickReply = {
   content_type: "text";
@@ -42,6 +43,8 @@ export type AutomatedMessageDescriptor =
       buttons: AutomatedButton[];
     };
 
+export type AutomatedDeliveryKind = "response_dm" | "private_reply";
+
 type QueueAutomatedBaseArgs = {
   workspaceId: Id<"workspaces">;
   instagramAccountId: Id<"instagramAccounts">;
@@ -56,6 +59,9 @@ type QueueAutomatedBaseArgs = {
 type QueueAutomatedMessageArgs = QueueAutomatedBaseArgs & {
   messageText: string;
   requestDescriptor: AutomatedMessageDescriptor;
+  deliveryKind?: AutomatedDeliveryKind;
+  privateReplyCommentId?: string | null;
+  privateReplyExpiresAt?: number | null;
 };
 
 type QueueAutomatedQuickReplyArgs = QueueAutomatedBaseArgs & {
@@ -73,6 +79,23 @@ type QueueAutomatedButtonTemplateArgs = QueueAutomatedBaseArgs & {
   messageText: string;
   buttons: AutomatedButton[];
 };
+
+type QueueAutomatedPrivateReplyBaseArgs = QueueAutomatedBaseArgs & {
+  commentId: string;
+  commentCreatedAt: number;
+};
+
+type QueueAutomatedPrivateReplyTextArgs = QueueAutomatedPrivateReplyBaseArgs & {
+  messageText: string;
+};
+
+type QueueAutomatedPrivateReplyButtonTemplateArgs =
+  QueueAutomatedPrivateReplyBaseArgs & {
+    messageText: string;
+    buttons: AutomatedButton[];
+  };
+
+const PRIVATE_REPLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 function buildDeliveryPreview(text: string, actions: string[]) {
   const normalizedText = text.trim();
@@ -92,9 +115,16 @@ async function queueAutomatedMessage(
   }
 
   const now = Date.now();
+  const deliveryKind = args.deliveryKind ?? "response_dm";
+  const privateReplyCommentId = args.privateReplyCommentId?.trim() || null;
+  const privateReplyExpiresAt = args.privateReplyExpiresAt ?? null;
   const policyWindowOpen =
-    conversation.messagingWindowClosesAt !== null &&
-    conversation.messagingWindowClosesAt >= now;
+    deliveryKind === "private_reply"
+      ? privateReplyCommentId !== null &&
+        privateReplyExpiresAt !== null &&
+        privateReplyExpiresAt >= now
+      : conversation.messagingWindowClosesAt !== null &&
+        conversation.messagingWindowClosesAt >= now;
   const tokenExpired =
     account.tokenExpiresAt !== null && account.tokenExpiresAt <= now;
   const accountTokenUsable = canUseAccountToken({
@@ -115,7 +145,10 @@ async function queueAutomatedMessage(
     status === "queued"
       ? null
       : !policyWindowOpen
-        ? "24-hour messaging window expired."
+        ? getDeliveryExpiredReason({
+            deliveryKind,
+            privateReplyExpiresAt,
+          })
         : status === "skipped"
           ? "Instagram account was disconnected before the delivery could be sent."
           : "Outbound sending is paused until Instagram token access recovers.";
@@ -128,6 +161,9 @@ async function queueAutomatedMessage(
     automationRuleId: args.automationRuleId,
     storyAutomationId: args.storyAutomationId ?? null,
     sequenceEnrollmentId: args.sequenceEnrollmentId,
+    deliveryKind,
+    privateReplyCommentId,
+    privateReplyExpiresAt,
     status,
     reason,
     requestPayload: JSON.stringify(args.requestDescriptor),
@@ -162,9 +198,11 @@ async function queueAutomatedMessage(
       },
     );
   } else if (status === "skipped_expired") {
-    await ctx.db.patch(args.conversationId, {
-      status: "window_closed",
-    });
+    if (deliveryKind === "response_dm") {
+      await ctx.db.patch(args.conversationId, {
+        status: "window_closed",
+      });
+    }
   }
 
   return { deliveryAttemptId, status };
@@ -291,6 +329,79 @@ export async function queueAutomatedButtonTemplate(
           : `[${button.title}]`,
       ),
     ),
+    requestDescriptor: {
+      kind: "button_template",
+      text: messageText,
+      buttons,
+    },
+  });
+}
+
+export async function queueAutomatedPrivateReplyText(
+  ctx: MutationCtx,
+  args: QueueAutomatedPrivateReplyTextArgs,
+) {
+  const messageText = args.messageText.trim();
+
+  return queueAutomatedMessage(ctx, {
+    ...args,
+    messageText,
+    deliveryKind: "private_reply",
+    privateReplyCommentId: args.commentId,
+    privateReplyExpiresAt: args.commentCreatedAt + PRIVATE_REPLY_WINDOW_MS,
+    requestDescriptor: {
+      kind: "text",
+      text: messageText,
+    },
+  });
+}
+
+export async function queueAutomatedPrivateReplyButtonTemplate(
+  ctx: MutationCtx,
+  args: QueueAutomatedPrivateReplyButtonTemplateArgs,
+) {
+  const messageText = args.messageText.trim();
+  const buttons = args.buttons
+    .map((button) =>
+      button.type === "web_url"
+        ? {
+            type: "web_url" as const,
+            title: button.title.trim(),
+            url: button.url.trim(),
+          }
+        : {
+            type: "postback" as const,
+            title: button.title.trim(),
+            payload: button.payload.trim(),
+          },
+    )
+    .filter((button) =>
+      button.type === "web_url"
+        ? button.title.length > 0 && button.url.length > 0
+        : button.title.length > 0 && button.payload.length > 0,
+    )
+    .slice(0, 3);
+
+  if (buttons.length === 0) {
+    return queueAutomatedPrivateReplyText(ctx, {
+      ...args,
+      messageText,
+    });
+  }
+
+  return queueAutomatedMessage(ctx, {
+    ...args,
+    messageText: buildDeliveryPreview(
+      messageText,
+      buttons.map((button) =>
+        button.type === "web_url"
+          ? `[${button.title}] ${button.url}`
+          : `[${button.title}]`,
+      ),
+    ),
+    deliveryKind: "private_reply",
+    privateReplyCommentId: args.commentId,
+    privateReplyExpiresAt: args.commentCreatedAt + PRIVATE_REPLY_WINDOW_MS,
     requestDescriptor: {
       kind: "button_template",
       text: messageText,

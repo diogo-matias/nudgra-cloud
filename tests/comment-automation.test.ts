@@ -223,6 +223,7 @@ async function startSession(
       contactId,
       conversationId,
       commentId: `comment_${suffix}`,
+      commentCreatedAt: BASE_TIME,
       mediaId: `media_${suffix}`,
     });
 
@@ -747,6 +748,48 @@ describe("comment automation reliability", () => {
 
     const stableLock = await t.run((ctx) => ctx.db.get(automationId));
     expect(stableLock?.nextLockedMediaId).toBe("media_new");
+  });
+
+  it("queues the first comment-triggered message as a private reply without opening a DM window", async () => {
+    const t = convexTest({ schema, modules });
+    const fixture = await seedWorkspace(t);
+    await insertAutomation(t, fixture, {
+      openingDmEnabled: true,
+      openingDmText: "Tap below to get the link.",
+      openingDmButtonText: "Send me the link",
+      followGateEnabled: false,
+      emailCollectionEnabled: false,
+      followUpEnabled: false,
+    });
+
+    const result = await t.mutation(
+      internal.meta.commentWebhooks.processCommentWebhookItem,
+      {
+        instagramAccountExternalId: "ig_account_1",
+        commentId: "comment_private_reply",
+        commentText: "link",
+        commenterId: "commenter_private_reply",
+        commenterUsername: "private_reply_user",
+        mediaId: "media_private_reply",
+        parentCommentId: null,
+        timestamp: BASE_TIME,
+        allowRefresh: false,
+      },
+    );
+
+    expect(result.status).toBe("processed");
+
+    const conversations = await t.run((ctx) => ctx.db.query("conversations").collect());
+    expect(conversations).toHaveLength(1);
+    expect(conversations[0]?.messagingWindowClosesAt ?? null).toBeNull();
+
+    const attempts = await t.run((ctx) => ctx.db.query("deliveryAttempts").collect());
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toMatchObject({
+      deliveryKind: "private_reply",
+      privateReplyCommentId: "comment_private_reply",
+      status: "queued",
+    });
   });
 
   it("tracks clicks and only sends follow-ups when the session is still eligible", async () => {

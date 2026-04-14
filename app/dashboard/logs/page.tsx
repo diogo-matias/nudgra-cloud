@@ -80,6 +80,9 @@ const STATUS_CONFIG: Record<
 
 const LOG_TYPE_LABELS: Record<string, string> = {
   keyword_match: "Keyword match",
+  comment_automation: "Comment automation",
+  private_reply: "Private reply",
+  story_automation: "Story automation",
   sequence_step: "Sequence step",
   webhook: "Webhook",
   webhook_delivery: "Webhook delivery",

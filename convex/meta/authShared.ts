@@ -103,6 +103,19 @@ export function isMetaConsentRequiredError(error: ParsedMetaApiError | string) {
   return message.toLowerCase().includes("user consent is required");
 }
 
+export function isMetaOutsideAllowedWindowError(
+  error: ParsedMetaApiError | string,
+) {
+  const parsed =
+    typeof error === "string" ? parseMetaApiError(error, error) : error;
+  const normalized = parsed.message.toLowerCase();
+  return (
+    parsed.subcode === 2534022 ||
+    normalized.includes("outside of allowed window") ||
+    normalized.includes("outside the allowed window")
+  );
+}
+
 export function isMetaTransientError(status: number) {
   return status === 429 || status >= 500;
 }
