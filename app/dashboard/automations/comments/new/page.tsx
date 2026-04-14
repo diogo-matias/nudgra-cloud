@@ -68,7 +68,9 @@ export default function NewCommentAutomationPage() {
   // Opening DM
   const [openingDmEnabled, setOpeningDmEnabled] = useState(true);
   const [openingDmText, setOpeningDmText] = useState(
-    "Hey! Thanks for your interest. Click below to get the link:",
+    `Hey there! I'm so happy you're here, thanks so much for your interest 😊
+
+Click below and I'll send you the link in just a sec ✨`,
   );
   const [openingDmButtonText, setOpeningDmButtonText] =
     useState("Send me the link");
@@ -76,7 +78,9 @@ export default function NewCommentAutomationPage() {
   // Follow gate
   const [followGateEnabled, setFollowGateEnabled] = useState(false);
   const [followGateText, setFollowGateText] = useState(
-    "To get the link, please follow our account first!",
+    `Nearly there! The link is especially for my followers ✨
+
+Right after you follow me, I'll send you the link so you can dive straight in! 🎉`,
   );
 
   // Email collection
@@ -581,7 +585,7 @@ export default function NewCommentAutomationPage() {
                       <textarea
                         value={openingDmText}
                         onChange={(e) => setOpeningDmText(e.target.value)}
-                        placeholder="Hey! Thanks for your interest..."
+                        placeholder="Hey there! I'm so happy you're here..."
                         rows={3}
                         maxLength={500}
                         className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed"
@@ -623,7 +627,7 @@ export default function NewCommentAutomationPage() {
                       <textarea
                         value={followGateText}
                         onChange={(e) => setFollowGateText(e.target.value)}
-                        placeholder="Please follow our account to get the link!"
+                        placeholder="Nearly there! The link is especially for my followers ✨"
                         rows={2}
                         maxLength={500}
                         className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed"
@@ -678,7 +682,7 @@ export default function NewCommentAutomationPage() {
                       onChange={(e) => setLinkDmText(e.target.value)}
                       placeholder="Write a message"
                       rows={3}
-                      maxLength={500}
+                      maxLength={2000}
                       className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed"
                     />
                   </div>

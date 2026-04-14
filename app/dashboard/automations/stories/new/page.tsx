@@ -52,7 +52,9 @@ export default function NewStoryAutomationPage() {
   const [reactionEnabled, setReactionEnabled] = useState(false);
   const [followGateEnabled, setFollowGateEnabled] = useState(false);
   const [followGateText, setFollowGateText] = useState(
-    "To get the link, please follow our account first!",
+    `Nearly there! The link is especially for my followers ✨
+
+Right after you follow me, I'll send you the link so you can dive straight in! 🎉`,
   );
   const [emailCollectionEnabled, setEmailCollectionEnabled] = useState(false);
   const [emailCollectionText, setEmailCollectionText] = useState(

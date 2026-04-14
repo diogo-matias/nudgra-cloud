@@ -78,7 +78,9 @@ const DEFAULT_LINK_BUTTON_TEXT = "Open link";
 const DEFAULT_LINK_MESSAGE = "Tap below to open your link.";
 const DEFAULT_LINK_BATCH_MESSAGE = "More links";
 const DEFAULT_FOLLOW_GATE_MESSAGE =
-  "Please follow our account first, then tap below so I can verify and send the link.";
+  `Nearly there! The link is especially for my followers ✨
+
+Right after you follow me, I'll send you the link so you can dive straight in! 🎉`;
 const FOLLOW_GATE_CONSENT_MESSAGE =
   "Follow our account, then send any message here so I can verify and send the link.";
 const OPENING_DM_POSTBACK_PAYLOAD = "comment_automation:opening_dm";
