@@ -7,37 +7,109 @@ import {
   requireCurrentWorkspace,
   requireWorkspaceInstagramAccount,
 } from "./lib/auth";
+import { parseMetaApiError } from "./meta/authShared";
+
+const DELIVERY_ISSUE_STATUSES = new Set<Doc<"deliveryAttempts">["status"]>([
+  "failed",
+  "blocked_auth",
+  "skipped",
+  "skipped_expired",
+]);
+
+type DashboardLogStatus = Doc<"deliveryAttempts">["status"] | "received";
+
+function withReason(summary: string, reason: string | null | undefined) {
+  const trimmedReason = reason?.trim();
+  if (!trimmedReason) {
+    return summary;
+  }
+
+  return `${summary} ${trimmedReason.endsWith(".") ? trimmedReason : `${trimmedReason}.`}`;
+}
 
 function buildActivityLabel(args: {
   delivery?: Doc<"deliveryAttempts">;
   webhook?: Doc<"webhookEvents">;
   contactUsername?: string | null;
-  ruleName?: string | null;
 }) {
   if (args.delivery) {
-    const subject = args.contactUsername
-      ? `@${args.contactUsername}`
-      : "contact";
+    const subject = args.contactUsername ? `@${args.contactUsername}` : "contact";
     if (args.delivery.status === "sent") {
       return `Reply sent to ${subject}.`;
     }
+    if (args.delivery.status === "queued") {
+      return args.delivery.attemptNumber > 1
+        ? `Retry ${args.delivery.attemptNumber} is queued for ${subject}.`
+        : `Reply queued for ${subject}.`;
+    }
     if (args.delivery.status === "blocked_auth") {
-      return `Reply is waiting for Instagram token recovery for ${subject}.`;
+      return withReason(`Reply paused for ${subject}.`, args.delivery.reason);
     }
     if (args.delivery.status === "skipped") {
-      return `Reply skipped for ${subject}.`;
+      return withReason(`Reply skipped for ${subject}.`, args.delivery.reason);
     }
     if (args.delivery.status === "skipped_expired") {
-      return `Reply expired before it could be sent to ${subject}.`;
+      return withReason(`Reply expired for ${subject}.`, args.delivery.reason);
     }
-    return `Reply failed for ${subject}.`;
+    return withReason(`Reply failed for ${subject}.`, args.delivery.reason);
   }
 
   if (args.webhook) {
+    if (args.webhook.processingStatus === "failed") {
+      return withReason(
+        `Webhook processing failed (${args.webhook.eventType}).`,
+        args.webhook.errorMessage,
+      );
+    }
+    if (args.webhook.processingStatus === "processed") {
+      return `Webhook processed (${args.webhook.eventType}).`;
+    }
+    if (args.webhook.processingStatus === "ignored") {
+      return `Webhook ignored (${args.webhook.eventType}).`;
+    }
     return `Webhook event received (${args.webhook.eventType}).`;
   }
 
   return "Automation event recorded.";
+}
+
+function buildWebhookReceiptLabel(receipt: Doc<"webhookReceipts">) {
+  if (receipt.status === "invalid_json") {
+    return withReason("Webhook delivery could not be parsed.", receipt.note);
+  }
+
+  if (receipt.status === "unmatched_account") {
+    return withReason(
+      "Webhook delivery did not match a connected Instagram account.",
+      receipt.note,
+    );
+  }
+
+  return receipt.note ?? "Raw webhook POST received for the Meta callback endpoint.";
+}
+
+function buildMetaErrorDiagnostic(
+  responsePayload: string | null,
+  fallbackMessage: string | null,
+) {
+  const payload = responsePayload?.trim();
+  if (!payload) {
+    return null;
+  }
+
+  const parsed = parseMetaApiError(
+    payload,
+    fallbackMessage ?? "Meta rejected the delivery.",
+  );
+  if (parsed.code === null && parsed.subcode === null && parsed.type === null) {
+    return null;
+  }
+
+  return {
+    code: parsed.code,
+    subcode: parsed.subcode,
+    type: parsed.type,
+  };
 }
 
 export const getOverview = query({
@@ -69,26 +141,61 @@ export const getOverview = query({
           .order("desc")
           .take(100),
       ]);
-    const recentDeliveries = await ctx.db
-      .query("deliveryAttempts")
-      .withIndex("by_workspace_id_and_event_time", (q) =>
-        q.eq("workspaceId", workspace._id),
-      )
-      .order("desc")
-      .take(12);
-    const failureThreshold = Date.now() - 24 * 60 * 60 * 1000;
-    const failuresToday = recentDeliveries.filter(
-      (delivery) =>
-        delivery.status === "failed" && delivery.eventTime >= failureThreshold,
-    ).length;
 
-    const recentWebhooks = await ctx.db
-      .query("webhookEvents")
-      .withIndex("by_workspace_id_and_received_at", (q) =>
-        q.eq("workspaceId", workspace._id),
-      )
-      .order("desc")
-      .take(6);
+    const scopedRules =
+      selectedAccount === null
+        ? []
+        : rules.filter((rule) => rule.instagramAccountId === selectedAccount._id);
+    const scopedContacts =
+      selectedAccount === null
+        ? []
+        : contacts.filter(
+            (contact) => contact.instagramAccountId === selectedAccount._id,
+          );
+    const scopedConversations =
+      selectedAccount === null
+        ? []
+        : conversations.filter(
+            (conversation) =>
+              conversation.instagramAccountId === selectedAccount._id,
+          );
+
+    const failureThreshold = Date.now() - 24 * 60 * 60 * 1000;
+    let recentDeliveries: Doc<"deliveryAttempts">[] = [];
+    let recentWebhooks: Doc<"webhookEvents">[] = [];
+    let deliveriesToday: Doc<"deliveryAttempts">[] = [];
+
+    if (selectedAccount !== null) {
+      [recentDeliveries, recentWebhooks, deliveriesToday] = await Promise.all([
+        ctx.db
+          .query("deliveryAttempts")
+          .withIndex("by_instagram_account_id_and_event_time", (q) =>
+            q.eq("instagramAccountId", selectedAccount._id),
+          )
+          .order("desc")
+          .take(12),
+        ctx.db
+          .query("webhookEvents")
+          .withIndex("by_instagram_account_id_and_received_at", (q) =>
+            q.eq("instagramAccountId", selectedAccount._id),
+          )
+          .order("desc")
+          .take(6),
+        ctx.db
+          .query("deliveryAttempts")
+          .withIndex("by_instagram_account_id_and_event_time", (q) =>
+            q
+              .eq("instagramAccountId", selectedAccount._id)
+              .gte("eventTime", failureThreshold),
+          )
+          .order("desc")
+          .take(100),
+      ]);
+    }
+
+    const failuresToday = deliveriesToday.filter((delivery) =>
+      DELIVERY_ISSUE_STATUSES.has(delivery.status),
+    ).length;
 
     const recentActivity: Array<{
       id: string;
@@ -98,16 +205,12 @@ export const getOverview = query({
     }> = [];
     for (const delivery of recentDeliveries) {
       const contact = await ctx.db.get(delivery.contactId);
-      const rule = delivery.automationRuleId
-        ? await ctx.db.get(delivery.automationRuleId)
-        : null;
       recentActivity.push({
         id: `delivery:${delivery._id}`,
         time: delivery.eventTime,
         label: buildActivityLabel({
           delivery,
           contactUsername: contact?.username ?? null,
-          ruleName: rule?.name ?? null,
         }),
         kind: delivery.status,
       });
@@ -159,9 +262,9 @@ export const getOverview = query({
         ).length,
       })),
       stats: {
-        activeRules: rules.filter((rule) => rule.isActive).length,
-        contacts: contacts.length,
-        conversations: conversations.length,
+        activeRules: scopedRules.filter((rule) => rule.isActive).length,
+        contacts: scopedContacts.length,
+        conversations: scopedConversations.length,
         failuresToday,
       },
       recentActivity: recentActivity.slice(0, 6),
@@ -293,16 +396,27 @@ export const listLogs = query({
       id: string;
       time: number;
       type: string;
-      status: string;
+      status: DashboardLogStatus;
       contact: string | null;
       rule: string | null;
       details: string;
+      attemptNumber: number | null;
+      metaError: {
+        code: number | null;
+        subcode: number | null;
+        type: string | null;
+      } | null;
+      rawPayload: string | null;
     }> = [];
     for (const delivery of deliveries) {
       const contact = await ctx.db.get(delivery.contactId);
       const rule = delivery.automationRuleId
         ? await ctx.db.get(delivery.automationRuleId)
         : null;
+      const details = buildActivityLabel({
+        delivery,
+        contactUsername: contact?.username ?? null,
+      });
       entries.push({
         id: `delivery:${delivery._id}`,
         time: delivery.eventTime,
@@ -310,11 +424,16 @@ export const listLogs = query({
         status: delivery.status,
         contact: contact?.username ?? null,
         rule: rule?.name ?? null,
-        details: buildActivityLabel({
-          delivery,
-          contactUsername: contact?.username ?? null,
-          ruleName: rule?.name ?? null,
-        }),
+        details,
+        attemptNumber: delivery.attemptNumber,
+        metaError: buildMetaErrorDiagnostic(
+          delivery.responsePayload,
+          delivery.reason,
+        ),
+        rawPayload:
+          delivery.status === "failed" || delivery.status === "blocked_auth"
+            ? delivery.responsePayload
+            : null,
       });
     }
 
@@ -327,6 +446,9 @@ export const listLogs = query({
         contact: null,
         rule: null,
         details: buildActivityLabel({ webhook }),
+        attemptNumber: null,
+        metaError: null,
+        rawPayload: null,
       });
     }
 
@@ -342,9 +464,10 @@ export const listLogs = query({
             : "received",
         contact: null,
         rule: null,
-        details:
-          receipt.note ??
-          "Raw webhook POST received for the Meta callback endpoint.",
+        details: buildWebhookReceiptLabel(receipt),
+        attemptNumber: null,
+        metaError: null,
+        rawPayload: null,
       });
     }
 
@@ -365,6 +488,9 @@ export const listLogs = query({
         details:
           session.guardrailReason ??
           "Safety guardrail paused a comment automation session.",
+        attemptNumber: null,
+        metaError: null,
+        rawPayload: null,
       });
     }
 

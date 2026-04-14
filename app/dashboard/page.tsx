@@ -15,15 +15,25 @@ import {
   AccountAvatar,
   getAccountPrimaryLabel,
 } from "@/components/dashboard/account-avatar";
+import { Badge } from "@/components/ui/badge";
 
 export default function OverviewPage() {
   const data = useQuery(api.dashboard.getOverview);
+  const selectedAccount = data?.selectedAccount ?? null;
   const stats = data?.stats ?? {
     activeRules: 0,
     contacts: 0,
     conversations: 0,
     failuresToday: 0,
   };
+  const selectedAccountLabel =
+    selectedAccount === null
+      ? null
+      : getAccountPrimaryLabel({
+          username: selectedAccount.username,
+          name: selectedAccount.name,
+          instagramAccountId: selectedAccount.instagramAccountId,
+        });
 
   return (
     <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -33,8 +43,27 @@ export default function OverviewPage() {
             Overview
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Health and recent activity across all connected accounts.
+            {selectedAccount
+              ? `Health and recent activity for ${
+                  selectedAccount.username
+                    ? `@${selectedAccount.username}`
+                    : "the selected account"
+                }.`
+              : "Choose an active account from the sidebar to view scoped health and activity."}
           </p>
+          {selectedAccountLabel ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Badge
+                variant="outline"
+                className="border-primary/15 bg-primary/5 text-primary"
+              >
+                Scoped to
+              </Badge>
+              <Badge variant="outline" className="border-border bg-background">
+                {selectedAccountLabel}
+              </Badge>
+            </div>
+          ) : null}
         </header>
 
         {/* Stats */}
