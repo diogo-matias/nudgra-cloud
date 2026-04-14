@@ -12,6 +12,8 @@ import { META_GRAPH_API_VERSION, requireSiteUrl } from "../meta/config";
 import {
   type AutomatedButton,
   queueAutomatedButtonTemplate,
+  queueAutomatedPrivateReplyButtonTemplate,
+  queueAutomatedPrivateReplyText,
   queueAutomatedTextReply,
 } from "../meta/sendHelpers";
 import {
@@ -49,6 +51,7 @@ type StartSessionArgs = {
   contactId: Id<"contacts">;
   conversationId: Id<"conversations">;
   commentId: string | null;
+  commentCreatedAt: number | null;
   mediaId: string | null;
 };
 
@@ -60,6 +63,12 @@ type AdvanceSessionInput = {
 };
 type FollowGateCheckStatus = "following" | "not_following" | "consent_required";
 type FollowGateInputMode = "button" | "reply";
+type CommentDeliveryKind = "response_dm" | "private_reply";
+type CommentDeliveryContext = {
+  deliveryKind?: CommentDeliveryKind;
+  commentId?: string | null;
+  commentCreatedAt?: number | null;
+};
 
 const FOLLOW_UP_DELAY_MS = 6 * 60 * 60 * 1000;
 const COMMENT_AUTOMATION_SESSION_MESSAGE_LIMIT = 8;
@@ -86,6 +95,17 @@ function hasInboundInteraction(inbound: AdvanceSessionInput) {
     inbound.postbackPayload !== null ||
     inbound.quickReplyPayload !== null
   );
+}
+
+function matchesOpeningDmInteraction(
+  automation: Pick<CommentAutomation, "openingDmButtonText">,
+  inbound: AdvanceSessionInput,
+) {
+  if (automation.openingDmButtonText.trim()) {
+    return inbound.postbackPayload === OPENING_DM_POSTBACK_PAYLOAD;
+  }
+
+  return hasInboundInteraction(inbound);
 }
 
 function matchesFollowGateInteraction(
@@ -158,6 +178,9 @@ async function queueGuardedCommentAutomationTextReply(
     messageText: string;
     purpose: string;
     allowCompletedSession?: boolean;
+    deliveryKind?: CommentDeliveryKind;
+    commentId?: string | null;
+    commentCreatedAt?: number | null;
   },
 ) {
   const session = await ctx.db.get(args.sessionId);
@@ -208,15 +231,36 @@ async function queueGuardedCommentAutomationTextReply(
     return false;
   }
 
-  await queueAutomatedTextReply(ctx, {
-    workspaceId: session.workspaceId,
-    instagramAccountId: session.instagramAccountId,
-    conversationId: session.conversationId,
-    contactId: session.contactId,
-    messageText: args.messageText,
-    automationRuleId: null,
-    sequenceEnrollmentId: null,
-  });
+  const deliveryKind = args.deliveryKind ?? "response_dm";
+  if (deliveryKind === "private_reply") {
+    const commentId = args.commentId?.trim() ?? "";
+    const commentCreatedAt = args.commentCreatedAt ?? null;
+    if (!commentId || commentCreatedAt === null) {
+      return false;
+    }
+
+    await queueAutomatedPrivateReplyText(ctx, {
+      workspaceId: session.workspaceId,
+      instagramAccountId: session.instagramAccountId,
+      conversationId: session.conversationId,
+      contactId: session.contactId,
+      messageText: args.messageText,
+      automationRuleId: null,
+      sequenceEnrollmentId: null,
+      commentId,
+      commentCreatedAt,
+    });
+  } else {
+    await queueAutomatedTextReply(ctx, {
+      workspaceId: session.workspaceId,
+      instagramAccountId: session.instagramAccountId,
+      conversationId: session.conversationId,
+      contactId: session.contactId,
+      messageText: args.messageText,
+      automationRuleId: null,
+      sequenceEnrollmentId: null,
+    });
+  }
 
   await ctx.db.patch(session._id, {
     outboundMessageCount: sessionOutboundCount + 1,
@@ -235,6 +279,9 @@ async function queueGuardedCommentAutomationButtonTemplate(
     buttons: AutomatedButton[];
     purpose: string;
     allowCompletedSession?: boolean;
+    deliveryKind?: CommentDeliveryKind;
+    commentId?: string | null;
+    commentCreatedAt?: number | null;
   },
 ) {
   const session = await ctx.db.get(args.sessionId);
@@ -285,16 +332,38 @@ async function queueGuardedCommentAutomationButtonTemplate(
     return false;
   }
 
-  await queueAutomatedButtonTemplate(ctx, {
-    workspaceId: session.workspaceId,
-    instagramAccountId: session.instagramAccountId,
-    conversationId: session.conversationId,
-    contactId: session.contactId,
-    messageText: args.messageText,
-    buttons: args.buttons,
-    automationRuleId: null,
-    sequenceEnrollmentId: null,
-  });
+  const deliveryKind = args.deliveryKind ?? "response_dm";
+  if (deliveryKind === "private_reply") {
+    const commentId = args.commentId?.trim() ?? "";
+    const commentCreatedAt = args.commentCreatedAt ?? null;
+    if (!commentId || commentCreatedAt === null) {
+      return false;
+    }
+
+    await queueAutomatedPrivateReplyButtonTemplate(ctx, {
+      workspaceId: session.workspaceId,
+      instagramAccountId: session.instagramAccountId,
+      conversationId: session.conversationId,
+      contactId: session.contactId,
+      messageText: args.messageText,
+      buttons: args.buttons,
+      automationRuleId: null,
+      sequenceEnrollmentId: null,
+      commentId,
+      commentCreatedAt,
+    });
+  } else {
+    await queueAutomatedButtonTemplate(ctx, {
+      workspaceId: session.workspaceId,
+      instagramAccountId: session.instagramAccountId,
+      conversationId: session.conversationId,
+      contactId: session.contactId,
+      messageText: args.messageText,
+      buttons: args.buttons,
+      automationRuleId: null,
+      sequenceEnrollmentId: null,
+    });
+  }
 
   await ctx.db.patch(session._id, {
     outboundMessageCount: sessionOutboundCount + 1,
@@ -456,6 +525,9 @@ export async function startCommentAutomationSession(
     await sendOpeningDm(ctx, {
       sessionId,
       automation,
+      deliveryKind: "private_reply",
+      commentId: args.commentId,
+      commentCreatedAt: args.commentCreatedAt,
     });
 
     const currentSession = await ctx.db.get(sessionId);
@@ -470,6 +542,9 @@ export async function startCommentAutomationSession(
       sessionId,
       automation,
       consentRequired: false,
+      deliveryKind: "private_reply",
+      commentId: args.commentId,
+      commentCreatedAt: args.commentCreatedAt,
     });
 
     const currentSession = await ctx.db.get(sessionId);
@@ -486,6 +561,9 @@ export async function startCommentAutomationSession(
       automation,
       messageText: automation.emailCollectionText,
       purpose: "the email prompt",
+      deliveryKind: "private_reply",
+      commentId: args.commentId,
+      commentCreatedAt: args.commentCreatedAt,
     });
 
     const currentSession = await ctx.db.get(sessionId);
@@ -497,7 +575,13 @@ export async function startCommentAutomationSession(
       });
     }
   } else {
-    await sendLinkDm(ctx, { sessionId, automation });
+    await sendLinkDm(ctx, {
+      sessionId,
+      automation,
+      deliveryKind: "private_reply",
+      commentId: args.commentId,
+      commentCreatedAt: args.commentCreatedAt,
+    });
   }
 
   await ctx.db.patch(automation._id, {
@@ -532,7 +616,7 @@ export async function advanceCommentAutomationSession(
   switch (session.currentStep) {
     case "awaiting_button_click":
     case "opening_dm_sent": {
-      if (inbound.postbackPayload !== OPENING_DM_POSTBACK_PAYLOAD) {
+      if (!matchesOpeningDmInteraction(automation, inbound)) {
         return null;
       }
 
@@ -669,7 +753,7 @@ async function sendOpeningDm(
   args: {
     sessionId: Id<"commentAutomationSessions">;
     automation: CommentAutomation;
-  },
+  } & CommentDeliveryContext,
 ) {
   const buttonTitle = args.automation.openingDmButtonText.trim();
 
@@ -679,6 +763,9 @@ async function sendOpeningDm(
       automation: args.automation,
       messageText: args.automation.openingDmText,
       purpose: "the opening DM",
+      deliveryKind: args.deliveryKind,
+      commentId: args.commentId,
+      commentCreatedAt: args.commentCreatedAt,
     });
   }
 
@@ -694,6 +781,9 @@ async function sendOpeningDm(
       },
     ],
     purpose: "the opening DM",
+    deliveryKind: args.deliveryKind,
+    commentId: args.commentId,
+    commentCreatedAt: args.commentCreatedAt,
   });
 }
 
@@ -717,7 +807,7 @@ async function sendFollowGate(
     sessionId: Id<"commentAutomationSessions">;
     automation: CommentAutomation;
     consentRequired: boolean;
-  },
+  } & CommentDeliveryContext,
 ) {
   const messageText = getFollowGateMessage(
     args.automation,
@@ -730,6 +820,9 @@ async function sendFollowGate(
       automation: args.automation,
       messageText,
       purpose: "the follow gate prompt",
+      deliveryKind: args.deliveryKind,
+      commentId: args.commentId,
+      commentCreatedAt: args.commentCreatedAt,
     });
   }
 
@@ -745,6 +838,9 @@ async function sendFollowGate(
       },
     ],
     purpose: "the follow gate prompt",
+    deliveryKind: args.deliveryKind,
+    commentId: args.commentId,
+    commentCreatedAt: args.commentCreatedAt,
   });
 }
 
@@ -753,10 +849,14 @@ async function sendLinkDm(
   args: {
     sessionId: Id<"commentAutomationSessions">;
     automation: CommentAutomation;
-  },
+  } & CommentDeliveryContext,
 ) {
   const session = await ctx.db.get(args.sessionId);
   if (!session) {
+    return;
+  }
+  const conversation = await ctx.db.get(session.conversationId);
+  if (conversation === null) {
     return;
   }
 
@@ -804,6 +904,9 @@ async function sendLinkDm(
         messageText: index === 0 ? messageText : DEFAULT_LINK_BATCH_MESSAGE,
         buttons,
         purpose: "the link delivery",
+        deliveryKind: args.deliveryKind,
+        commentId: args.commentId,
+        commentCreatedAt: args.commentCreatedAt,
       });
       if (!queued) {
         return;
@@ -815,6 +918,9 @@ async function sendLinkDm(
       automation: args.automation,
       messageText,
       purpose: "the link delivery",
+      deliveryKind: args.deliveryKind,
+      commentId: args.commentId,
+      commentCreatedAt: args.commentCreatedAt,
     });
     if (!queued) {
       return;
@@ -833,6 +939,8 @@ async function sendLinkDm(
     args.automation.followUpEnabled &&
     args.automation.followUpText.trim() &&
     trackedButtons.length > 0 &&
+    conversation.messagingWindowClosesAt !== null &&
+    conversation.messagingWindowClosesAt >= now &&
     (session.followUpScheduledAt ?? null) === null
   ) {
     nextPatch.followUpScheduledAt = now + FOLLOW_UP_DELAY_MS;
@@ -1126,7 +1234,15 @@ export const processInboundCommentAutomationInteraction = internalAction({
       return null;
     }
 
-    if (isOpeningStep && args.postbackPayload !== OPENING_DM_POSTBACK_PAYLOAD) {
+    if (
+      isOpeningStep &&
+      !matchesOpeningDmInteraction(automation, {
+        hasMessage: args.hasMessage,
+        text: args.text,
+        postbackPayload: args.postbackPayload,
+        quickReplyPayload: args.quickReplyPayload,
+      })
+    ) {
       return null;
     }
 

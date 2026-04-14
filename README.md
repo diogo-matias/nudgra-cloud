@@ -165,7 +165,7 @@ Set these URLs in the Meta app:
 Also make sure you:
 
 - add the correct tester/admin roles during development
-- subscribe the app to the Instagram webhook fields you need, especially `messages` and `comments`
+- subscribe the app to the Instagram webhook fields you need, especially `messages`, `messaging_postbacks`, and `comments`
 - switch the app to Live mode when you are ready for real delivery
 
 Store the Meta values on the Convex production deployment:

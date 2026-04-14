@@ -6,7 +6,11 @@ export const META_REQUESTED_SCOPES = [
   "instagram_business_manage_comments",
 ];
 
-export const META_WEBHOOK_SUBSCRIBED_FIELDS = ["messages", "comments"];
+export const META_WEBHOOK_SUBSCRIBED_FIELDS = [
+  "messages",
+  "messaging_postbacks",
+  "comments",
+];
 
 export function requireMetaEnv() {
   const appId = process.env.META_APP_ID;

@@ -58,7 +58,7 @@ Meta's webhook delivery also has two separate requirements:
 2. Set the app to Live mode so Meta actually sends webhook notifications.
 
 After account connection, Nudgra also attempts to subscribe the connected Instagram account to the app's webhook delivery through the Graph API.
-For the current MVP, the account-level subscription requests the `messages` webhook field.
+The account-level subscription requests `messages`, `messaging_postbacks`, and `comments` so comment-triggered private replies can open the normal 24-hour DM window after a tap or reply.
 
 Important: a "Connected" account in Nudgra only confirms OAuth/token storage and
 that the app attempted the account-level `subscribed_apps` call. It does not

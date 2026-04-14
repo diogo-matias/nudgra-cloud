@@ -7,9 +7,15 @@ import { META_GRAPH_API_VERSION } from "./config";
 import {
   canUseAccountToken,
   isMetaAuthError,
+  isMetaOutsideAllowedWindowError,
   isMetaTransientError,
   parseMetaApiError,
 } from "./authShared";
+import {
+  getDeliveryExpiredReason,
+  getDeliveryKind,
+  isDeliveryPolicyWindowOpen,
+} from "./deliveryPolicy";
 
 type ParsedQuickReply = {
   content_type: "text";
@@ -183,26 +189,67 @@ function parseStoredRequestPayload(
   return null;
 }
 
+function buildRecipient(args: {
+  recipientId: string;
+  deliveryKind: "response_dm" | "private_reply";
+  privateReplyCommentId: string | null;
+}) {
+  if (args.deliveryKind === "private_reply") {
+    if (!args.privateReplyCommentId) {
+      throw new Error("Missing comment ID for private reply delivery.");
+    }
+    return {
+      comment_id: args.privateReplyCommentId,
+    };
+  }
+
+  return {
+    id: args.recipientId,
+  };
+}
+
+function buildMessageEnvelope(
+  args: {
+    recipientId: string;
+    deliveryKind: "response_dm" | "private_reply";
+    privateReplyCommentId: string | null;
+  },
+  message: Record<string, unknown>,
+) {
+  const recipient = buildRecipient(args);
+  if (args.deliveryKind === "private_reply") {
+    return { recipient, message };
+  }
+
+  return {
+    messaging_type: "RESPONSE" as const,
+    recipient,
+    message,
+  };
+}
+
 function buildMetaSendRequest(args: {
   recipientId: string;
   fallbackText: string;
   requestPayload: string | null;
+  deliveryKind: "response_dm" | "private_reply";
+  privateReplyCommentId: string | null;
 }) {
   const parsed = parseStoredRequestPayload(args.requestPayload);
 
   if (parsed === null) {
-    return {
-      messaging_type: "RESPONSE" as const,
-      recipient: {
-        id: args.recipientId,
-      },
-      message: {
-        text: args.fallbackText,
-      },
-    };
+    return buildMessageEnvelope(args, {
+      text: args.fallbackText,
+    });
   }
 
   if (parsed.kind === "story_reply_reaction") {
+    if (args.deliveryKind === "private_reply") {
+      return buildMessageEnvelope(args, {
+        text: args.fallbackText,
+      });
+    }
+
     return {
       recipient: {
         id: args.recipientId,
@@ -216,66 +263,70 @@ function buildMetaSendRequest(args: {
   }
 
   if (parsed.kind === "text") {
-    return {
-      messaging_type: "RESPONSE" as const,
-      recipient: {
-        id: args.recipientId,
-      },
-      message: {
-        text: parsed.text,
-      },
-    };
+    return buildMessageEnvelope(args, {
+      text: parsed.text,
+    });
   }
 
   if (parsed.kind === "quick_reply") {
-    return {
-      messaging_type: "RESPONSE" as const,
-      recipient: {
-        id: args.recipientId,
-      },
-      message: {
-        text: parsed.text,
-        quick_replies: parsed.quickReplies,
-      },
-    };
+    return buildMessageEnvelope(args, {
+      text: parsed.text,
+      quick_replies: parsed.quickReplies,
+    });
   }
 
-  return {
-    messaging_type: "RESPONSE" as const,
-    recipient: {
-      id: args.recipientId,
-    },
-    message: {
-      attachment: {
-        type: "template" as const,
-        payload: {
-          template_type: "button" as const,
-          text: parsed.text,
-          buttons: parsed.buttons,
-        },
+  return buildMessageEnvelope(args, {
+    attachment: {
+      type: "template" as const,
+      payload: {
+        template_type: "button" as const,
+        text: parsed.text,
+        buttons: parsed.buttons,
       },
     },
+  });
+}
+
+function getAttemptPolicyReason(args: {
+  attempt: {
+    deliveryKind?: "response_dm" | "private_reply";
+    privateReplyExpiresAt?: number | null;
   };
+}) {
+  return getDeliveryExpiredReason({
+    deliveryKind: getDeliveryKind(args.attempt),
+    privateReplyExpiresAt: args.attempt.privateReplyExpiresAt ?? null,
+  });
 }
 
 function getUnavailableAttemptStatus(args: {
   account: {
     status: "connected" | "connection_error" | "disconnected";
   };
+  attempt: {
+    deliveryKind?: "response_dm" | "private_reply";
+    privateReplyExpiresAt?: number | null;
+  };
   conversation: {
     messagingWindowClosesAt: number | null;
   };
 }) {
   const now = Date.now();
-  const policyWindowOpen =
-    args.conversation.messagingWindowClosesAt !== null &&
-    args.conversation.messagingWindowClosesAt >= now;
+  const policyWindowOpen = isDeliveryPolicyWindowOpen({
+    attempt: {
+      deliveryKind: getDeliveryKind(args.attempt),
+      privateReplyExpiresAt: args.attempt.privateReplyExpiresAt ?? null,
+    },
+    conversation: args.conversation,
+    now,
+  });
 
   if (!policyWindowOpen) {
     return {
       status: "skipped_expired" as const,
-      reason:
-        "24-hour messaging window expired before the delivery could be sent.",
+      reason: getAttemptPolicyReason({
+        attempt: args.attempt,
+      }),
     };
   }
 
@@ -316,6 +367,7 @@ export const performQueuedDelivery = internalAction({
     if (!tokenUsable) {
       const unavailable = getUnavailableAttemptStatus({
         account: context.account,
+        attempt: context.attempt,
         conversation: context.conversation,
       });
       await ctx.runMutation(internal.meta.send.markDeliveryAttemptResult, {
@@ -373,6 +425,7 @@ export const performQueuedDelivery = internalAction({
       if (!refreshedTokenUsable) {
         const unavailable = getUnavailableAttemptStatus({
           account: context.account,
+          attempt: context.attempt,
           conversation: context.conversation,
         });
         await ctx.runMutation(internal.meta.send.markDeliveryAttemptResult, {
@@ -416,6 +469,8 @@ export const performQueuedDelivery = internalAction({
           recipientId: context.contact.instagramUserId,
           fallbackText: context.attempt.messageText,
           requestPayload: context.attempt.requestPayload,
+          deliveryKind: getDeliveryKind(context.attempt),
+          privateReplyCommentId: context.attempt.privateReplyCommentId ?? null,
         }),
       ),
     });
@@ -453,6 +508,17 @@ export const performQueuedDelivery = internalAction({
         await ctx.runMutation(internal.meta.send.markDeliveryAttemptResult, {
           deliveryAttemptId: context.attempt._id,
           status: "blocked_auth",
+          reason,
+          responsePayload: responseText,
+          metaMessageId: null,
+        });
+        return null;
+      }
+
+      if (isMetaOutsideAllowedWindowError(parsedError)) {
+        await ctx.runMutation(internal.meta.send.markDeliveryAttemptResult, {
+          deliveryAttemptId: context.attempt._id,
+          status: "skipped_expired",
           reason,
           responsePayload: responseText,
           metaMessageId: null,

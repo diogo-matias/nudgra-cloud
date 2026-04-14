@@ -28,16 +28,20 @@ export function OpeningDmInfoModal({
           {/* Left: Explanation */}
           <div className="flex-1 flex flex-col gap-5">
             <p className="text-sm text-foreground leading-relaxed">
-              Opening DMs boost engagement in Comment for a DM automations.
+              The Opening DM is sent as the private reply to a qualifying
+              comment.
             </p>
             <p className="text-sm text-foreground leading-relaxed">
-              When someone clicks the button in your Opening DM, it starts a
-              two-way chat so you can do way more than just send a link.
+              When someone taps the button or replies, Meta opens the normal
+              24-hour DM window so Nudgra can keep the conversation going.
+            </p>
+            <p className="text-sm text-foreground leading-relaxed">
+              Without that interaction, only the first private reply is allowed.
             </p>
 
             <div>
               <p className="text-sm font-semibold text-foreground mb-4">
-                The Opening DM allows you to:
+                After they interact, the Opening DM allows you to:
               </p>
 
               <div className="rounded-xl bg-muted/50 border border-border p-5 flex flex-col gap-5">
@@ -131,7 +135,7 @@ function PhoneMockup() {
           {/* DM header */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
             <ChevronLeft className="size-4 text-white shrink-0" />
-            <div className="size-6 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 shrink-0" />
+            <div className="size-6 rounded-full bg-linear-to-br from-purple-500 to-pink-500 shrink-0" />
             <div className="flex-1 min-w-0">
               <p className="text-[10px] text-white font-semibold">username</p>
               <p className="text-[8px] text-white/40">Active 9m ago</p>
@@ -142,7 +146,7 @@ function PhoneMockup() {
           {/* Messages */}
           <div className="px-3 py-3 flex flex-col gap-2 min-h-[340px] justify-end">
             {/* Opening DM */}
-            <DmBubble side="left">Your Opening DM</DmBubble>
+            <DmBubble side="left">Your private reply</DmBubble>
             <DmButton side="left">Start</DmButton>
 
             {/* User reply */}
@@ -199,7 +203,7 @@ function DmBubble({
 
   return (
     <div className="flex items-end gap-1.5">
-      <div className="size-4 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 shrink-0" />
+      <div className="size-4 rounded-full bg-linear-to-br from-purple-500 to-pink-500 shrink-0" />
       <div className="bg-[#262626] rounded-2xl rounded-bl-md px-3 py-1.5 max-w-[80%]">
         <p className="text-[10px] text-white">{children}</p>
       </div>

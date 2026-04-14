@@ -265,6 +265,7 @@ describe("contacts and inbox read models", () => {
         contactId,
         conversationId,
         commentId: "comment_1",
+        commentCreatedAt: BASE_TIME + 120_000,
         mediaId: "media_1",
       });
     });

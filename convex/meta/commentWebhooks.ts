@@ -303,7 +303,7 @@ export const processCommentWebhookItem = internalMutation({
     if (existingContact) {
       await ctx.db.patch(existingContact._id, {
         username: args.commenterUsername ?? existingContact.username,
-        lastInboundAt: now,
+        displayName: args.commenterUsername ?? existingContact.displayName,
         lastMessageAt: now,
       });
     }
@@ -315,6 +315,12 @@ export const processCommentWebhookItem = internalMutation({
       )
       .unique();
 
+    const commentPreview = args.commentText
+      ? args.commentText.length > 96
+        ? `${args.commentText.slice(0, 93)}...`
+        : args.commentText
+      : "Comment received";
+
     const conversationId =
       existingConversation?._id ??
       (await ctx.db.insert("conversations", {
@@ -325,14 +331,10 @@ export const processCommentWebhookItem = internalMutation({
         status: "active",
         startedAt: now,
         lastMessageAt: now,
-        lastInboundAt: now,
+        lastInboundAt: null,
         lastOutboundAt: null,
-        lastMessagePreview: args.commentText
-          ? args.commentText.length > 96
-            ? `${args.commentText.slice(0, 93)}...`
-            : args.commentText
-          : "Comment received",
-        messagingWindowClosesAt: now + 24 * 60 * 60 * 1000,
+        lastMessagePreview: commentPreview,
+        messagingWindowClosesAt: null,
         lastAutomationRuleId: null,
       }));
 
@@ -340,8 +342,7 @@ export const processCommentWebhookItem = internalMutation({
       await ctx.db.patch(existingConversation._id, {
         status: "active",
         lastMessageAt: now,
-        lastInboundAt: now,
-        messagingWindowClosesAt: now + 24 * 60 * 60 * 1000,
+        lastMessagePreview: commentPreview,
       });
     }
 
@@ -369,6 +370,7 @@ export const processCommentWebhookItem = internalMutation({
       contactId,
       conversationId,
       commentId: args.commentId,
+      commentCreatedAt: args.timestamp,
       mediaId: args.mediaId,
     });
 

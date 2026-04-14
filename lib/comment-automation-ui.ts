@@ -120,9 +120,9 @@ export function getCommentAutomationFormValidationIssues(args: {
 export function getCommentAutomationStepLabel(step: string) {
   switch (step) {
     case "opening_dm_sent":
-      return "Opening DM sent";
+      return "Opening private reply sent";
     case "awaiting_button_click":
-      return "Waiting for opening DM click";
+      return "Waiting for opening DM interaction";
     case "email_requested":
       return "Email requested";
     case "awaiting_email":

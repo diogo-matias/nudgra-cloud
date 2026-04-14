@@ -51,9 +51,9 @@ function formatCommentAutomationStep(
 ) {
   switch (step) {
     case "opening_dm_sent":
-      return "Opening DM sent";
+      return "Opening private reply sent";
     case "awaiting_button_click":
-      return "Awaiting CTA click";
+      return "Awaiting opening DM interaction";
     case "follow_gate_sent":
       return "Follow gate sent";
     case "awaiting_follow":

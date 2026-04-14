@@ -1,6 +1,7 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 import { Doc } from "./_generated/dataModel";
+import { getDeliveryAttemptAutomationType } from "./automations/guardrails";
 import {
   getSelectedWorkspaceInstagramAccount,
   listWorkspaceInstagramAccounts,
@@ -8,6 +9,7 @@ import {
   requireWorkspaceInstagramAccount,
 } from "./lib/auth";
 import { parseMetaApiError } from "./meta/authShared";
+import { getDeliveryKind } from "./meta/deliveryPolicy";
 
 const DELIVERY_ISSUE_STATUSES = new Set<Doc<"deliveryAttempts">["status"]>([
   "failed",
@@ -34,24 +36,28 @@ function buildActivityLabel(args: {
 }) {
   if (args.delivery) {
     const subject = args.contactUsername ? `@${args.contactUsername}` : "contact";
+    const activityLabel =
+      getDeliveryKind(args.delivery) === "private_reply"
+        ? "Private reply"
+        : "Reply";
     if (args.delivery.status === "sent") {
-      return `Reply sent to ${subject}.`;
+      return `${activityLabel} sent to ${subject}.`;
     }
     if (args.delivery.status === "queued") {
       return args.delivery.attemptNumber > 1
         ? `Retry ${args.delivery.attemptNumber} is queued for ${subject}.`
-        : `Reply queued for ${subject}.`;
+        : `${activityLabel} queued for ${subject}.`;
     }
     if (args.delivery.status === "blocked_auth") {
-      return withReason(`Reply paused for ${subject}.`, args.delivery.reason);
+      return withReason(`${activityLabel} paused for ${subject}.`, args.delivery.reason);
     }
     if (args.delivery.status === "skipped") {
-      return withReason(`Reply skipped for ${subject}.`, args.delivery.reason);
+      return withReason(`${activityLabel} skipped for ${subject}.`, args.delivery.reason);
     }
     if (args.delivery.status === "skipped_expired") {
-      return withReason(`Reply expired for ${subject}.`, args.delivery.reason);
+      return withReason(`${activityLabel} expired for ${subject}.`, args.delivery.reason);
     }
-    return withReason(`Reply failed for ${subject}.`, args.delivery.reason);
+    return withReason(`${activityLabel} failed for ${subject}.`, args.delivery.reason);
   }
 
   if (args.webhook) {
@@ -420,7 +426,22 @@ export const listLogs = query({
       entries.push({
         id: `delivery:${delivery._id}`,
         time: delivery.eventTime,
-        type: delivery.sequenceEnrollmentId ? "sequence_step" : "keyword_match",
+        type:
+          getDeliveryKind(delivery) === "private_reply"
+            ? "private_reply"
+            : (() => {
+                const automationType = getDeliveryAttemptAutomationType(delivery);
+                if (automationType === "sequence") {
+                  return "sequence_step";
+                }
+                if (automationType === "comment_automation") {
+                  return "comment_automation";
+                }
+                if (automationType === "story_automation") {
+                  return "story_automation";
+                }
+                return "keyword_match";
+              })(),
         status: delivery.status,
         contact: contact?.username ?? null,
         rule: rule?.name ?? null,

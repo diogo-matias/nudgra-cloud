@@ -1,6 +1,14 @@
 import { internal } from "../_generated/api";
+import { Doc } from "../_generated/dataModel";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { v } from "convex/values";
+import { getDeliveryAttemptAutomationType } from "../automations/guardrails";
+import {
+  getDeliveryExpiredReason,
+  getDeliveryKind,
+  isDeliveryPolicyWindowOpen,
+  shouldCloseConversationWindow,
+} from "./deliveryPolicy";
 
 function parseStoredAttemptPayload(payload: string | null) {
   if (!payload) {
@@ -18,6 +26,25 @@ function parseStoredAttemptPayload(payload: string | null) {
         };
   } catch {
     return null;
+  }
+}
+
+function buildDeliverySource(
+  attempt: Pick<
+    Doc<"deliveryAttempts">,
+    "automationRuleId" | "storyAutomationId" | "sequenceEnrollmentId"
+  >,
+) {
+  switch (getDeliveryAttemptAutomationType(attempt)) {
+    case "comment_automation":
+      return "comment_automation" as const;
+    case "story_automation":
+      return "story_automation" as const;
+    case "sequence":
+      return "sequence" as const;
+    case "rule":
+    default:
+      return "rule" as const;
   }
 }
 
@@ -70,9 +97,11 @@ export const markDeliveryAttemptResult = internalMutation({
     });
 
     if (args.status === "skipped_expired") {
-      await ctx.db.patch(attempt.conversationId, {
-        status: "window_closed",
-      });
+      if (shouldCloseConversationWindow(attempt)) {
+        await ctx.db.patch(attempt.conversationId, {
+          status: "window_closed",
+        });
+      }
       return null;
     }
 
@@ -87,11 +116,7 @@ export const markDeliveryAttemptResult = internalMutation({
       parsedPayload?.kind === "story_reply_reaction"
         ? (parsedPayload.triggerMessageId ?? null)
         : null;
-    const source = attempt.sequenceEnrollmentId
-      ? "sequence"
-      : attempt.storyAutomationId
-        ? "story_automation"
-        : "rule";
+    const source = buildDeliverySource(attempt);
 
     await ctx.db.insert("messages", {
       workspaceId: attempt.workspaceId,
@@ -214,18 +239,25 @@ export const replayBlockedDeliveries = internalMutation({
     for (const attempt of blockedAttempts) {
       const conversation = await ctx.db.get(attempt.conversationId);
       const now = Date.now();
-      const policyWindowOpen =
-        conversation !== null &&
-        conversation.messagingWindowClosesAt !== null &&
-        conversation.messagingWindowClosesAt >= now;
+      const policyWindowOpen = isDeliveryPolicyWindowOpen({
+        attempt: {
+          deliveryKind: getDeliveryKind(attempt),
+          privateReplyExpiresAt: attempt.privateReplyExpiresAt ?? null,
+        },
+        conversation,
+        now,
+      });
 
       if (!policyWindowOpen) {
         await ctx.db.patch(attempt._id, {
           status: "skipped_expired",
-          reason: "24-hour messaging window expired before auth recovered.",
+          reason: getDeliveryExpiredReason({
+            deliveryKind: getDeliveryKind(attempt),
+            privateReplyExpiresAt: attempt.privateReplyExpiresAt ?? null,
+          }),
           eventTime: now,
         });
-        if (conversation !== null) {
+        if (conversation !== null && shouldCloseConversationWindow(attempt)) {
           await ctx.db.patch(conversation._id, {
             status: "window_closed",
           });
