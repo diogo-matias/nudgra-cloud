@@ -160,7 +160,7 @@ export function DashboardSidebar({
               </p>
               <p className="text-xs text-muted-foreground">
                 {accountContext?.selectedAccount
-                  ? `Switch scope across ${accountContext.connectedAccounts} account${
+                  ? `Switch between ${accountContext.connectedAccounts} connected account${
                       accountContext.connectedAccounts === 1 ? "" : "s"
                     }`
                   : "Connect an Instagram account to start automating"}

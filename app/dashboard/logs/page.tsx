@@ -2,14 +2,45 @@
 
 import { useState } from "react";
 import { useQuery } from "convex/react";
-import { Activity, AlertCircle, CheckCircle2, Clock, Radio } from "lucide-react";
+import {
+  Activity,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+  Radio,
+  type LucideIcon,
+} from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { cn } from "@/lib/utils";
 import { SelectedAccountEmptyState } from "@/components/dashboard/selected-account-empty-state";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 type FilterTab = "all" | "failures" | "webhooks";
+type LogStatus =
+  | "sent"
+  | "failed"
+  | "queued"
+  | "skipped"
+  | "skipped_expired"
+  | "blocked_auth"
+  | "received";
 
-const STATUS_CONFIG = {
+const ISSUE_STATUSES = new Set<LogStatus>([
+  "failed",
+  "blocked_auth",
+  "skipped",
+  "skipped_expired",
+]);
+
+const STATUS_CONFIG: Record<
+  LogStatus,
+  {
+    label: string;
+    icon: LucideIcon;
+    classes: string;
+  }
+> = {
   sent: {
     label: "Delivered",
     icon: CheckCircle2,
@@ -25,9 +56,19 @@ const STATUS_CONFIG = {
     icon: Clock,
     classes: "text-blue-700 bg-blue-50 border-blue-200",
   },
+  blocked_auth: {
+    label: "Blocked",
+    icon: AlertCircle,
+    classes: "text-amber-700 bg-amber-50 border-amber-200",
+  },
   skipped: {
     label: "Skipped",
     icon: AlertCircle,
+    classes: "text-amber-700 bg-amber-50 border-amber-200",
+  },
+  skipped_expired: {
+    label: "Window expired",
+    icon: Clock,
     classes: "text-amber-700 bg-amber-50 border-amber-200",
   },
   received: {
@@ -36,6 +77,36 @@ const STATUS_CONFIG = {
     classes: "text-blue-700 bg-blue-50 border-blue-200",
   },
 };
+
+const LOG_TYPE_LABELS: Record<string, string> = {
+  keyword_match: "Keyword match",
+  sequence_step: "Sequence step",
+  webhook: "Webhook",
+  webhook_delivery: "Webhook delivery",
+  comment_guardrail: "Comment guardrail",
+};
+
+function isIssueStatus(status: LogStatus) {
+  return ISSUE_STATUSES.has(status);
+}
+
+function formatLogType(value: string) {
+  return (
+    LOG_TYPE_LABELS[value] ??
+    value
+      .split("_")
+      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+      .join(" ")
+  );
+}
+
+function formatPayload(payload: string) {
+  try {
+    return JSON.stringify(JSON.parse(payload), null, 2);
+  } catch {
+    return payload;
+  }
+}
 
 export default function LogsPage() {
   const accountContext = useQuery(api.accounts.getSelectedAccountContext);
@@ -60,7 +131,7 @@ export default function LogsPage() {
 
   const filtered = logs.filter((log) => {
     if (tab === "failures") {
-      return log.status === "failed";
+      return isIssueStatus(log.status);
     }
     if (tab === "webhooks") {
       return log.type.startsWith("webhook");
@@ -68,7 +139,7 @@ export default function LogsPage() {
     return true;
   });
 
-  const failureCount = logs.filter((log) => log.status === "failed").length;
+  const failureCount = logs.filter((log) => isIssueStatus(log.status)).length;
 
   return (
     <main className="flex-1 px-8 py-10">
@@ -85,16 +156,18 @@ export default function LogsPage() {
           <div className="bg-destructive/5 border border-destructive/20 rounded-xl p-4 flex items-center gap-3">
             <AlertCircle className="size-4 text-destructive shrink-0" />
             <p className="text-sm text-foreground">
-              <span className="font-semibold">{failureCount} failed</span>{" "}
-              delivery attempt{failureCount !== 1 ? "s" : ""} in recent activity.
+              <span className="font-semibold">{failureCount} delivery</span>{" "}
+              issue{failureCount !== 1 ? "s" : ""} in recent activity.
             </p>
-            <button
+            <Button
               type="button"
+              variant="link"
+              size="sm"
               onClick={() => setTab("failures")}
-              className="ml-auto text-xs font-medium text-destructive hover:underline cursor-pointer shrink-0"
+              className="ml-auto h-auto shrink-0 p-0 text-destructive"
             >
               View failures
-            </button>
+            </Button>
           </div>
         ) : null}
 
@@ -109,19 +182,19 @@ export default function LogsPage() {
               { value: "webhooks", label: "Webhooks" },
             ] as { value: FilterTab; label: string }[]
           ).map(({ value, label }) => (
-            <button
+            <Button
               key={value}
               type="button"
               onClick={() => setTab(value)}
+              variant={tab === value ? "secondary" : "ghost"}
+              size="sm"
               className={cn(
-                "rounded-md px-4 py-1.5 text-sm font-medium transition-colors cursor-pointer",
-                tab === value
-                  ? "bg-card text-foreground shadow-sm border border-border"
-                  : "text-muted-foreground hover:text-foreground"
+                "rounded-md px-4",
+                tab === value && "border border-border bg-card shadow-sm"
               )}
             >
               {label}
-            </button>
+            </Button>
           ))}
         </div>
 
@@ -130,10 +203,11 @@ export default function LogsPage() {
         ) : (
           <div className="bg-card border border-border rounded-xl overflow-hidden divide-y divide-border">
             {filtered.map((log) => {
-              const status =
-                STATUS_CONFIG[log.status as keyof typeof STATUS_CONFIG] ??
-                STATUS_CONFIG.received;
+              const status = STATUS_CONFIG[log.status];
               const StatusIcon = status.icon;
+              const issueStatus = isIssueStatus(log.status);
+              const formattedPayload =
+                log.rawPayload === null ? null : formatPayload(log.rawPayload);
 
               return (
                 <div
@@ -145,7 +219,7 @@ export default function LogsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-0.5">
                       <p className="text-sm font-medium text-foreground">
-                        {log.type.replace("_", " ")}
+                        {formatLogType(log.type)}
                       </p>
                       {log.contact ? (
                         <span className="text-xs text-muted-foreground">
@@ -157,10 +231,71 @@ export default function LogsPage() {
                           {log.rule}
                         </span>
                       ) : null}
+                      {log.attemptNumber !== null && log.attemptNumber > 1 ? (
+                        <Badge
+                          variant="outline"
+                          className="border-border bg-background text-muted-foreground"
+                        >
+                          Attempt {log.attemptNumber}
+                        </Badge>
+                      ) : null}
                     </div>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      {log.details}
-                    </p>
+                    {issueStatus ? (
+                      <div className="mt-2 rounded-xl border border-border bg-muted/20 px-3 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          What happened
+                        </p>
+                        <p className="mt-1 text-xs leading-relaxed text-foreground">
+                          {log.details}
+                        </p>
+                        {log.metaError || formattedPayload ? (
+                          <div className="mt-2 space-y-2">
+                            {log.metaError ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {log.metaError.code !== null ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="border-border bg-background text-muted-foreground"
+                                  >
+                                    Meta code {log.metaError.code}
+                                  </Badge>
+                                ) : null}
+                                {log.metaError.subcode !== null ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="border-border bg-background text-muted-foreground"
+                                  >
+                                    Subcode {log.metaError.subcode}
+                                  </Badge>
+                                ) : null}
+                                {log.metaError.type ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="border-border bg-background text-muted-foreground"
+                                  >
+                                    {log.metaError.type}
+                                  </Badge>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            {formattedPayload ? (
+                              <details className="group">
+                                <summary className="cursor-pointer text-xs font-medium text-muted-foreground transition group-open:text-foreground">
+                                  Raw Meta response
+                                </summary>
+                                <pre className="mt-2 max-h-56 overflow-auto rounded-lg border border-border bg-background p-3 text-[11px] leading-relaxed text-muted-foreground">
+                                  {formattedPayload}
+                                </pre>
+                              </details>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        {log.details}
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
@@ -168,14 +303,15 @@ export default function LogsPage() {
                       <Clock className="size-3" />
                       {formatDateTime(log.time)}
                     </div>
-                    <span
+                    <Badge
+                      variant="outline"
                       className={cn(
-                        "text-xs font-medium rounded-full px-2 py-0.5 border",
+                        "rounded-full px-2 py-0.5 text-xs font-medium",
                         status.classes
                       )}
                     >
                       {status.label}
-                    </span>
+                    </Badge>
                   </div>
                 </div>
               );
@@ -194,8 +330,8 @@ function EmptyState({ tab }: { tab: FilterTab }) {
       body: "Automation events, webhook deliveries, and errors will appear here.",
     },
     failures: {
-      title: "No failures",
-      body: "All recent automation attempts have been delivered successfully.",
+      title: "No delivery issues",
+      body: "Recent sends and retries are healthy for the selected account.",
     },
     webhooks: {
       title: "No webhook events",
