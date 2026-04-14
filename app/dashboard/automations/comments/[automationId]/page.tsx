@@ -1067,7 +1067,7 @@ export default function CommentAutomationDetailPage() {
                       <textarea
                         value={openingDmText}
                         onChange={(e) => setOpeningDmText(e.target.value)}
-                        placeholder="Hey! Thanks for your interest..."
+                        placeholder="Hey there! I'm so happy you're here..."
                         rows={3}
                         maxLength={500}
                         className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed"
@@ -1108,7 +1108,7 @@ export default function CommentAutomationDetailPage() {
                       <textarea
                         value={followGateText}
                         onChange={(e) => setFollowGateText(e.target.value)}
-                        placeholder="Please follow our account to get the link!"
+                        placeholder="Nearly there! The link is especially for my followers ✨"
                         rows={2}
                         maxLength={500}
                         className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed"
@@ -1162,7 +1162,7 @@ export default function CommentAutomationDetailPage() {
                       onChange={(e) => setLinkDmText(e.target.value)}
                       placeholder="Write a message"
                       rows={3}
-                      maxLength={500}
+                      maxLength={2000}
                       className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none leading-relaxed"
                     />
                   </div>

@@ -15,7 +15,9 @@ export const STORY_FOLLOW_UP_DELAY_MS = 6 * 60 * 60 * 1000;
 export const STORY_DEFAULT_LINK_MESSAGE = "Tap below to open your link.";
 export const STORY_DEFAULT_LINK_BATCH_MESSAGE = "More links";
 export const STORY_DEFAULT_FOLLOW_GATE_MESSAGE =
-  "Please follow our account first, then tap below so I can verify and send the link.";
+  `Nearly there! The link is especially for my followers ✨
+
+Right after you follow me, I'll send you the link so you can dive straight in! 🎉`;
 export const STORY_FOLLOW_GATE_CONSENT_MESSAGE =
   "Follow our account, then send any message here so I can verify and send the link.";
 export const STORY_FOLLOW_GATE_BUTTON_TEXT = "I'm following";

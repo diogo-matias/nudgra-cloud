@@ -209,7 +209,7 @@ export function RuleAutomationForm(props: RuleAutomationFormProps) {
                     }
                     placeholder="Write a message"
                     rows={4}
-                    maxLength={500}
+                    maxLength={2000}
                     className="w-full resize-none bg-transparent text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
                   />
                 </div>
@@ -271,7 +271,7 @@ export function RuleAutomationForm(props: RuleAutomationFormProps) {
                       onChange={(event) =>
                         props.onFollowGateTextChange(event.target.value)
                       }
-                      placeholder="To get the link, please follow our account first!"
+                      placeholder="Nearly there! The link is especially for my followers ✨"
                       rows={2}
                       maxLength={500}
                       className="w-full resize-none bg-transparent text-sm leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none"
