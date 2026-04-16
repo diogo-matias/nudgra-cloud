@@ -1,10 +1,110 @@
-type PostScope = "specific" | "any" | "next";
-type CommentFilter = "specific_words" | "any_word";
+export type PostScope = "specific" | "any" | "next";
+export type CommentFilter = "specific_words" | "any_word";
 
-type LinkLike = {
+export type LinkLike = {
   label: string;
   url: string;
 };
+
+export type CommentAutomationFormValues = {
+  name: string;
+  postScope: PostScope;
+  selectedMediaIds: string[];
+  commentFilter: CommentFilter;
+  triggerKeywords: string[];
+  commentReplyEnabled: boolean;
+  commentReplyTexts: string[];
+  openingDmEnabled: boolean;
+  openingDmText: string;
+  openingDmButtonText: string;
+  followGateEnabled: boolean;
+  followGateText: string;
+  emailCollectionEnabled: boolean;
+  emailCollectionText: string;
+  linkDmText: string;
+  linkButtons: LinkLike[];
+  followUpEnabled: boolean;
+  followUpText: string;
+};
+
+export function createDefaultCommentAutomationFormValues(): CommentAutomationFormValues {
+  return {
+    name: "",
+    postScope: "specific",
+    selectedMediaIds: [],
+    commentFilter: "specific_words",
+    triggerKeywords: [],
+    commentReplyEnabled: true,
+    commentReplyTexts: ["Thanks! Check your DMs"],
+    openingDmEnabled: true,
+    openingDmText:
+      "Hey there! I'm so happy you're here, thanks so much for your interest.\n\nClick below and I'll send you the link in just a sec.",
+    openingDmButtonText: "Send me the link",
+    followGateEnabled: false,
+    followGateText:
+      "Nearly there! The link is especially for my followers.\n\nRight after you follow me, I'll send you the link so you can dive straight in!",
+    emailCollectionEnabled: false,
+    emailCollectionText: "Drop your email and we'll send it right over:",
+    linkDmText: "Here's your link:",
+    linkButtons: [],
+    followUpEnabled: false,
+    followUpText:
+      "Just checking in - did you get the link? Let me know if you need anything!",
+  };
+}
+
+export function createCommentAutomationFormValues(
+  source: CommentAutomationFormValues,
+): CommentAutomationFormValues {
+  return {
+    ...source,
+    selectedMediaIds: [...source.selectedMediaIds],
+    triggerKeywords: [...source.triggerKeywords],
+    commentReplyTexts:
+      source.commentReplyTexts.length > 0
+        ? [...source.commentReplyTexts]
+        : [""],
+    linkButtons: source.linkButtons.map((button) => ({ ...button })),
+  };
+}
+
+export function buildCommentAutomationMutationValues(
+  values: CommentAutomationFormValues,
+  keywordInput = "",
+) {
+  const triggerKeywordLabels = mergeCommentAutomationKeywords(
+    values.triggerKeywords,
+    keywordInput,
+  );
+  const primaryLink = values.linkButtons[0] ?? null;
+
+  return {
+    name: values.name,
+    postScope: values.postScope,
+    selectedMediaIds: [...values.selectedMediaIds],
+    commentFilter: values.commentFilter,
+    triggerKeywords: getNormalizedCommentAutomationKeywords(
+      values.triggerKeywords,
+      keywordInput,
+    ),
+    triggerKeywordLabels,
+    commentReplyEnabled: values.commentReplyEnabled,
+    commentReplyTexts: values.commentReplyTexts.filter((text) => text.trim()),
+    openingDmEnabled: values.openingDmEnabled,
+    openingDmText: values.openingDmText,
+    openingDmButtonText: values.openingDmButtonText,
+    followGateEnabled: values.followGateEnabled,
+    followGateText: values.followGateText,
+    emailCollectionEnabled: values.emailCollectionEnabled,
+    emailCollectionText: values.emailCollectionText,
+    linkDmText: values.linkDmText,
+    linkButtons: values.linkButtons.map((button) => ({ ...button })),
+    followUpEnabled: values.followUpEnabled,
+    followUpText: values.followUpText,
+    linkUrl: primaryLink?.url ?? "",
+    linkButtonText: primaryLink?.label ?? "Open link",
+  };
+}
 
 type LatestSessionLike = {
   currentStep: string;
