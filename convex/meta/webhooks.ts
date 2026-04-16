@@ -19,7 +19,7 @@ import {
   matchesStoryAutomation,
   normalizeStoryReplyToken,
 } from "../automations/storyShared";
-import { Id } from "../_generated/dataModel";
+import { Doc, Id } from "../_generated/dataModel";
 
 type MessagingItem = {
   sender?: { id?: string; username?: string; name?: string };
@@ -276,6 +276,552 @@ function shouldRefreshContactProfile(
   return now - contact.profilePictureFetchedAt > CONTACT_PROFILE_REFRESH_INTERVAL_MS;
 }
 
+type StoryReplyMetadata = ReturnType<typeof parseStoryReplyMetadata>;
+
+type InboundInteraction = {
+  hasMessage: boolean;
+  text: string | null;
+  postbackPayload: string | null;
+  quickReplyPayload: string | null;
+  deliveryKey: string;
+};
+
+type PersistedConversationContext = {
+  contactId: Id<"contacts">;
+  conversationId: Id<"conversations">;
+  existingContact:
+    | {
+        profilePictureUrl: string | null;
+        profilePictureFetchedAt?: number | null;
+      }
+    | null;
+};
+
+async function findInstagramAccountByExternalId(
+  ctx: MutationCtx,
+  instagramAccountExternalId: string,
+) {
+  return await ctx.db
+    .query("instagramAccounts")
+    .withIndex("by_instagram_account_id", (q) =>
+      q.eq("instagramAccountId", instagramAccountExternalId),
+    )
+    .unique();
+}
+
+function buildInboundInteraction(args: {
+  hasMessage: boolean;
+  rawText: string | null;
+  item: MessagingItem;
+  deliveryKey: string;
+}): InboundInteraction {
+  return {
+    hasMessage: args.hasMessage,
+    text: args.rawText,
+    postbackPayload:
+      typeof args.item.postback?.payload === "string"
+        ? args.item.postback.payload.trim()
+        : null,
+    quickReplyPayload:
+      typeof args.item.message?.quick_reply?.payload === "string"
+        ? args.item.message.quick_reply.payload.trim()
+        : null,
+    deliveryKey: args.deliveryKey,
+  };
+}
+
+async function applyContactTagsIfMissing(
+  ctx: MutationCtx,
+  args: {
+    workspaceId: Id<"workspaces">;
+    contactId: Id<"contacts">;
+    tagIds: Id<"tags">[];
+    source: Doc<"contactTags">["source"];
+    appliedAt: number;
+  },
+) {
+  for (const tagId of args.tagIds) {
+    const existingContactTag = await ctx.db
+      .query("contactTags")
+      .withIndex("by_contact_id_and_tag_id", (q) =>
+        q.eq("contactId", args.contactId).eq("tagId", tagId),
+      )
+      .unique();
+
+    if (existingContactTag !== null) {
+      continue;
+    }
+
+    await ctx.db.insert("contactTags", {
+      workspaceId: args.workspaceId,
+      contactId: args.contactId,
+      tagId,
+      source: args.source,
+      appliedAt: args.appliedAt,
+    });
+  }
+}
+
+async function upsertContactAndConversation(
+  ctx: MutationCtx,
+  args: {
+    account: Doc<"instagramAccounts">;
+    contactInstagramUserId: string;
+    contactUsername: string | null;
+    contactDisplayName: string | null;
+    displayText: string | null;
+    messageTime: number;
+    isEcho: boolean;
+  },
+): Promise<PersistedConversationContext> {
+  const existingContact = await ctx.db
+    .query("contacts")
+    .withIndex("by_instagram_account_id_and_instagram_user_id", (q) =>
+      q
+        .eq("instagramAccountId", args.account._id)
+        .eq("instagramUserId", args.contactInstagramUserId),
+    )
+    .unique();
+
+  const contactId =
+    existingContact?._id ??
+    (await ctx.db.insert("contacts", {
+      workspaceId: args.account.workspaceId,
+      instagramAccountId: args.account._id,
+      instagramUserId: args.contactInstagramUserId,
+      username: args.contactUsername,
+      displayName: args.contactDisplayName,
+      profilePictureUrl: null,
+      firstInboundAt: args.messageTime,
+      lastInboundAt: args.messageTime,
+      lastMessageAt: args.messageTime,
+      profilePictureFetchedAt: null,
+    }));
+
+  if (existingContact) {
+    await ctx.db.patch(existingContact._id, {
+      username: args.contactUsername ?? existingContact.username,
+      displayName: args.contactDisplayName ?? existingContact.displayName,
+      lastInboundAt: args.isEcho
+        ? existingContact.lastInboundAt
+        : Math.max(existingContact.lastInboundAt, args.messageTime),
+      lastMessageAt: Math.max(existingContact.lastMessageAt, args.messageTime),
+    });
+  }
+
+  const existingConversation = await ctx.db
+    .query("conversations")
+    .withIndex("by_instagram_account_id_and_contact_id", (q) =>
+      q.eq("instagramAccountId", args.account._id).eq("contactId", contactId),
+    )
+    .unique();
+
+  const conversationId =
+    existingConversation?._id ??
+    (await ctx.db.insert("conversations", {
+      workspaceId: args.account.workspaceId,
+      instagramAccountId: args.account._id,
+      contactId,
+      conversationKey: `${args.account.instagramAccountId}:${args.contactInstagramUserId}`,
+      status: "active",
+      startedAt: args.messageTime,
+      lastMessageAt: args.messageTime,
+      lastInboundAt: args.isEcho ? null : args.messageTime,
+      lastOutboundAt: args.isEcho ? args.messageTime : null,
+      lastMessagePreview: makeMessagePreview(args.displayText),
+      messagingWindowClosesAt: args.isEcho
+        ? null
+        : args.messageTime + 24 * 60 * 60 * 1000,
+      lastAutomationRuleId: null,
+    }));
+
+  if (existingConversation) {
+    await ctx.db.patch(existingConversation._id, {
+      status: "active",
+      lastMessageAt: Math.max(existingConversation.lastMessageAt, args.messageTime),
+      lastInboundAt: args.isEcho
+        ? existingConversation.lastInboundAt
+        : existingConversation.lastInboundAt === null
+          ? args.messageTime
+          : Math.max(existingConversation.lastInboundAt, args.messageTime),
+      lastOutboundAt: args.isEcho
+        ? existingConversation.lastOutboundAt === null
+          ? args.messageTime
+          : Math.max(existingConversation.lastOutboundAt, args.messageTime)
+        : existingConversation.lastOutboundAt,
+      lastMessagePreview:
+        args.messageTime >= existingConversation.lastMessageAt
+          ? makeMessagePreview(args.displayText)
+          : existingConversation.lastMessagePreview,
+      messagingWindowClosesAt: args.isEcho
+        ? existingConversation.messagingWindowClosesAt
+        : args.messageTime + 24 * 60 * 60 * 1000,
+    });
+  }
+
+  return {
+    contactId,
+    conversationId,
+    existingContact,
+  };
+}
+
+async function ensureWebhookMessageRecorded(
+  ctx: MutationCtx,
+  args: {
+    account: Doc<"instagramAccounts">;
+    contactId: Id<"contacts">;
+    conversationId: Id<"conversations">;
+    webhookEventId: Id<"webhookEvents">;
+    deliveryKey: string;
+    metaMessageId: string | null;
+    direction: "inbound" | "outbound";
+    displayText: string | null;
+    messageTime: number;
+    isEcho: boolean;
+    isStoryReply: boolean;
+    storyReplyMetadata: StoryReplyMetadata;
+  },
+) {
+  const existingMessage =
+    (args.metaMessageId === null
+      ? null
+      : await ctx.db
+          .query("messages")
+          .withIndex("by_meta_message_id", (q) =>
+            q.eq("metaMessageId", args.metaMessageId),
+          )
+          .unique()) ??
+    (await ctx.db
+      .query("messages")
+      .withIndex("by_dedupe_key", (q) => q.eq("dedupeKey", args.deliveryKey))
+      .unique());
+
+  if (existingMessage !== null) {
+    return;
+  }
+
+  await ctx.db.insert("messages", {
+    workspaceId: args.account.workspaceId,
+    instagramAccountId: args.account._id,
+    conversationId: args.conversationId,
+    contactId: args.contactId,
+    direction: args.direction,
+    source: "webhook",
+    messageType: args.isStoryReply ? "story_reply" : "text",
+    text: args.displayText,
+    metaMessageId: args.metaMessageId,
+    dedupeKey: args.deliveryKey,
+    deliveryStatus: args.isEcho ? "sent" : "received",
+    eventTime: args.messageTime,
+    webhookEventId: args.webhookEventId,
+    automationRuleId: null,
+    storyAutomationId: null,
+    sequenceEnrollmentId: null,
+    storyReplyStoryId: args.storyReplyMetadata.storyId,
+    storyReplyStoryUrl: args.storyReplyMetadata.storyUrl,
+    storyReplyToken: args.storyReplyMetadata.replyToken,
+  });
+}
+
+async function continueActiveAutomationSessions(
+  ctx: MutationCtx,
+  args: {
+    conversationId: Id<"conversations">;
+    isEcho: boolean;
+    inboundInteraction: InboundInteraction;
+  },
+) {
+  if (args.isEcho) {
+    return false;
+  }
+
+  const activeStorySession = (
+    await ctx.db
+      .query("storyAutomationSessions")
+      .withIndex("by_conversation_id", (q) =>
+        q.eq("conversationId", args.conversationId),
+      )
+      .order("desc")
+      .take(10)
+  ).find(
+    (session) =>
+      session.currentStep !== "completed" &&
+      session.currentStep !== "link_sent" &&
+      session.currentStep !== "guardrail_tripped",
+  );
+
+  if (activeStorySession) {
+    const sessionAutomation = await ctx.db.get(activeStorySession.storyAutomationId);
+
+    if (sessionAutomation?.followGateEnabled) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.automations.storyFlow.processInboundStoryAutomationInteraction,
+        {
+          sessionId: activeStorySession._id,
+          ...args.inboundInteraction,
+        },
+      );
+    } else {
+      await advanceStoryAutomationSession(ctx, activeStorySession._id, {
+        hasMessage: args.inboundInteraction.hasMessage,
+        text: args.inboundInteraction.text,
+        postbackPayload: args.inboundInteraction.postbackPayload,
+        quickReplyPayload: args.inboundInteraction.quickReplyPayload,
+      });
+    }
+
+    return true;
+  }
+
+  const activeRuleSession = (
+    await ctx.db
+      .query("automationRuleSessions")
+      .withIndex("by_conversation_id", (q) =>
+        q.eq("conversationId", args.conversationId),
+      )
+      .order("desc")
+      .take(10)
+  ).find(
+    (session) =>
+      session.currentStep !== "completed" &&
+      session.currentStep !== "link_sent" &&
+      session.currentStep !== "guardrail_tripped",
+  );
+
+  if (activeRuleSession) {
+    const sessionRule = await ctx.db.get(activeRuleSession.automationRuleId);
+
+    if (sessionRule?.followGateEnabled) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.automations.ruleFlow.processInboundRuleAutomationInteraction,
+        {
+          sessionId: activeRuleSession._id,
+          ...args.inboundInteraction,
+        },
+      );
+    } else {
+      await advanceRuleAutomationSession(ctx, activeRuleSession._id, {
+        hasMessage: args.inboundInteraction.hasMessage,
+        text: args.inboundInteraction.text,
+        postbackPayload: args.inboundInteraction.postbackPayload,
+        quickReplyPayload: args.inboundInteraction.quickReplyPayload,
+      });
+    }
+
+    return true;
+  }
+
+  const activeCommentSession = (
+    await ctx.db
+      .query("commentAutomationSessions")
+      .withIndex("by_conversation_id", (q) =>
+        q.eq("conversationId", args.conversationId),
+      )
+      .order("desc")
+      .take(10)
+  ).find(
+    (session) =>
+      session.currentStep !== "completed" &&
+      session.currentStep !== "link_sent" &&
+      session.currentStep !== "guardrail_tripped",
+  );
+
+  if (!activeCommentSession) {
+    return false;
+  }
+
+  const sessionAutomation = await ctx.db.get(activeCommentSession.commentAutomationId);
+
+  if (sessionAutomation?.followGateEnabled) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.automations.commentFlow.processInboundCommentAutomationInteraction,
+      {
+        sessionId: activeCommentSession._id,
+        ...args.inboundInteraction,
+      },
+    );
+  } else {
+    await advanceCommentAutomationSession(ctx, activeCommentSession._id, {
+      hasMessage: args.inboundInteraction.hasMessage,
+      text: args.inboundInteraction.text,
+      postbackPayload: args.inboundInteraction.postbackPayload,
+      quickReplyPayload: args.inboundInteraction.quickReplyPayload,
+    });
+  }
+
+  return true;
+}
+
+async function matchAndStartStoryAutomation(
+  ctx: MutationCtx,
+  args: {
+    account: Doc<"instagramAccounts">;
+    contactId: Id<"contacts">;
+    conversationId: Id<"conversations">;
+    messageTime: number;
+    metaMessageId: string | null;
+    isEcho: boolean;
+    isPostback: boolean;
+    isQuickReply: boolean;
+    isStoryReply: boolean;
+    storyReplyMetadata: StoryReplyMetadata;
+  },
+) {
+  const liveStoryAutomations =
+    !args.isEcho && !args.isPostback && !args.isQuickReply && args.isStoryReply
+      ? await ctx.db
+          .query("storyAutomations")
+          .withIndex("by_instagram_account_id_and_status", (q) =>
+            q.eq("instagramAccountId", args.account._id).eq("status", "live"),
+          )
+          .take(50)
+      : [];
+
+  const matchedStoryAutomation = liveStoryAutomations.find((automation) =>
+    matchesStoryAutomation({
+      automation,
+      storyId: args.storyReplyMetadata.storyId,
+      storyUrl: args.storyReplyMetadata.storyUrl,
+      replyToken: args.storyReplyMetadata.replyToken,
+    }),
+  );
+
+  if (!matchedStoryAutomation) {
+    return null;
+  }
+
+  await applyContactTagsIfMissing(ctx, {
+    workspaceId: args.account.workspaceId,
+    contactId: args.contactId,
+    tagIds: matchedStoryAutomation.tagIds,
+    source: "story_automation",
+    appliedAt: args.messageTime,
+  });
+
+  await startStoryAutomationSession(ctx, matchedStoryAutomation, {
+    workspaceId: args.account.workspaceId,
+    instagramAccountId: args.account._id,
+    storyAutomationId: matchedStoryAutomation._id,
+    contactId: args.contactId,
+    conversationId: args.conversationId,
+    matchedAt: args.messageTime,
+    triggerMessageId: args.metaMessageId,
+    storyId: args.storyReplyMetadata.storyId,
+    storyUrl: args.storyReplyMetadata.storyUrl,
+    storyToken: args.storyReplyMetadata.replyToken,
+  });
+
+  if (matchedStoryAutomation.sequenceDefinitionId !== null) {
+    await createSequenceEnrollment(ctx, {
+      workspaceId: args.account.workspaceId,
+      instagramAccountId: args.account._id,
+      contactId: args.contactId,
+      conversationId: args.conversationId,
+      sequenceDefinitionId: matchedStoryAutomation.sequenceDefinitionId,
+    });
+  }
+
+  return matchedStoryAutomation;
+}
+
+async function matchAndStartRuleAutomation(
+  ctx: MutationCtx,
+  args: {
+    account: Doc<"instagramAccounts">;
+    contactId: Id<"contacts">;
+    conversationId: Id<"conversations">;
+    messageTime: number;
+    rawText: string | null;
+    isEcho: boolean;
+    isPostback: boolean;
+    isQuickReply: boolean;
+    isStoryReply: boolean;
+  },
+) {
+  const activeRules =
+    !args.isEcho && !args.isPostback && !args.isQuickReply
+      ? await ctx.db
+          .query("automationRules")
+          .withIndex("by_instagram_account_id_and_is_active", (q) =>
+            q.eq("instagramAccountId", args.account._id).eq("isActive", true),
+          )
+          .take(50)
+      : [];
+
+  const matchedLegacyStoryReplyRule =
+    !args.isEcho && !args.isPostback && !args.isQuickReply && args.isStoryReply
+      ? activeRules
+          .filter((rule) => rule.triggerType === "story_reply")
+          .find((rule) =>
+            matchesAutomationRule({
+              triggerType: rule.triggerType,
+              matchType: rule.matchType,
+              keywords: rule.keywords,
+              messageText: args.rawText,
+              isStoryReply: args.isStoryReply,
+            }),
+          )
+      : undefined;
+
+  const matchedKeywordRule =
+    !args.isEcho && !args.isPostback && !args.isQuickReply
+      ? activeRules
+          .filter((rule) => rule.triggerType === "keyword")
+          .find((rule) =>
+            matchesAutomationRule({
+              triggerType: rule.triggerType,
+              matchType: rule.matchType,
+              keywords: rule.keywords,
+              messageText: args.rawText,
+              isStoryReply: args.isStoryReply,
+            }),
+          )
+      : undefined;
+
+  const matchedRule = matchedLegacyStoryReplyRule ?? matchedKeywordRule;
+
+  if (!matchedRule) {
+    return null;
+  }
+
+  await ctx.db.patch(args.conversationId, {
+    lastAutomationRuleId: matchedRule._id,
+  });
+
+  await applyContactTagsIfMissing(ctx, {
+    workspaceId: args.account.workspaceId,
+    contactId: args.contactId,
+    tagIds: matchedRule.tagIds,
+    source: "rule",
+    appliedAt: args.messageTime,
+  });
+
+  await startRuleAutomationSession(ctx, matchedRule, {
+    workspaceId: args.account.workspaceId,
+    instagramAccountId: args.account._id,
+    automationRuleId: matchedRule._id,
+    contactId: args.contactId,
+    conversationId: args.conversationId,
+    matchedAt: args.messageTime,
+  });
+
+  if (matchedRule.sequenceDefinitionId !== null) {
+    await createSequenceEnrollment(ctx, {
+      workspaceId: args.account.workspaceId,
+      instagramAccountId: args.account._id,
+      contactId: args.contactId,
+      conversationId: args.conversationId,
+      sequenceDefinitionId: matchedRule.sequenceDefinitionId,
+    });
+  }
+
+  return matchedRule;
+}
+
 async function finalizeWebhookReceipt(
   ctx: MutationCtx,
   args: {
@@ -352,12 +898,7 @@ export const ingestWebhookPayload = internalMutation({
       const matchedAccount =
         externalAccountId === ""
           ? null
-          : await ctx.db
-              .query("instagramAccounts")
-              .withIndex("by_instagram_account_id", (q) =>
-                q.eq("instagramAccountId", externalAccountId),
-              )
-              .unique();
+          : await findInstagramAccountByExternalId(ctx, externalAccountId);
 
       await finalizeWebhookReceipt(ctx, {
         receiptId,
@@ -378,12 +919,10 @@ export const ingestWebhookPayload = internalMutation({
     }
 
     for (const { instagramAccountExternalId, item } of messagingItems) {
-      const account = await ctx.db
-        .query("instagramAccounts")
-        .withIndex("by_instagram_account_id", (q) =>
-          q.eq("instagramAccountId", instagramAccountExternalId),
-        )
-        .unique();
+      const account = await findInstagramAccountByExternalId(
+        ctx,
+        instagramAccountExternalId,
+      );
 
       if (account === null) {
         ignored += 1;
@@ -464,90 +1003,16 @@ export const ingestWebhookPayload = internalMutation({
         errorMessage: null,
       });
 
-      const existingContact = await ctx.db
-        .query("contacts")
-        .withIndex("by_instagram_account_id_and_instagram_user_id", (q) =>
-          q
-            .eq("instagramAccountId", account._id)
-            .eq("instagramUserId", contactInstagramUserId),
-        )
-        .unique();
-
-      const contactId =
-        existingContact?._id ??
-        (await ctx.db.insert("contacts", {
-          workspaceId: account.workspaceId,
-          instagramAccountId: account._id,
-          instagramUserId: contactInstagramUserId,
-          username: contactUsername,
-          displayName: contactDisplayName,
-          profilePictureUrl: null,
-          firstInboundAt: messageTime,
-          lastInboundAt: messageTime,
-          lastMessageAt: messageTime,
-          profilePictureFetchedAt: null,
-        }));
-
-      if (existingContact) {
-        await ctx.db.patch(existingContact._id, {
-          username: contactUsername ?? existingContact.username,
-          displayName: contactDisplayName ?? existingContact.displayName,
-          lastInboundAt: isEcho
-            ? existingContact.lastInboundAt
-            : Math.max(existingContact.lastInboundAt, messageTime),
-          lastMessageAt: Math.max(existingContact.lastMessageAt, messageTime),
+      const { contactId, conversationId, existingContact } =
+        await upsertContactAndConversation(ctx, {
+          account,
+          contactInstagramUserId,
+          contactUsername,
+          contactDisplayName,
+          displayText,
+          messageTime,
+          isEcho,
         });
-      }
-
-      const existingConversation = await ctx.db
-        .query("conversations")
-        .withIndex("by_instagram_account_id_and_contact_id", (q) =>
-          q.eq("instagramAccountId", account._id).eq("contactId", contactId),
-        )
-        .unique();
-
-      const conversationId =
-        existingConversation?._id ??
-        (await ctx.db.insert("conversations", {
-          workspaceId: account.workspaceId,
-          instagramAccountId: account._id,
-          contactId,
-          conversationKey: `${account.instagramAccountId}:${contactInstagramUserId}`,
-          status: "active",
-          startedAt: messageTime,
-          lastMessageAt: messageTime,
-          lastInboundAt: isEcho ? null : messageTime,
-          lastOutboundAt: isEcho ? messageTime : null,
-          lastMessagePreview: makeMessagePreview(displayText),
-          messagingWindowClosesAt: isEcho
-            ? null
-            : messageTime + 24 * 60 * 60 * 1000,
-          lastAutomationRuleId: null,
-        }));
-
-      if (existingConversation) {
-        await ctx.db.patch(existingConversation._id, {
-          status: "active",
-          lastMessageAt: Math.max(existingConversation.lastMessageAt, messageTime),
-          lastInboundAt: isEcho
-            ? existingConversation.lastInboundAt
-            : existingConversation.lastInboundAt === null
-              ? messageTime
-              : Math.max(existingConversation.lastInboundAt, messageTime),
-          lastOutboundAt: isEcho
-            ? existingConversation.lastOutboundAt === null
-              ? messageTime
-              : Math.max(existingConversation.lastOutboundAt, messageTime)
-            : existingConversation.lastOutboundAt,
-          lastMessagePreview:
-            messageTime >= existingConversation.lastMessageAt
-              ? makeMessagePreview(displayText)
-              : existingConversation.lastMessagePreview,
-          messagingWindowClosesAt: isEcho
-            ? existingConversation.messagingWindowClosesAt
-            : messageTime + 24 * 60 * 60 * 1000,
-        });
-      }
 
       if (shouldRefreshContactProfile(existingContact, messageTime)) {
         await ctx.scheduler.runAfter(
@@ -559,347 +1024,61 @@ export const ingestWebhookPayload = internalMutation({
         );
       }
 
-      const existingMessage =
-        (metaMessageId === null
-          ? null
-          : await ctx.db
-              .query("messages")
-              .withIndex("by_meta_message_id", (q) =>
-                q.eq("metaMessageId", metaMessageId),
-              )
-              .unique()) ??
-        (await ctx.db
-          .query("messages")
-          .withIndex("by_dedupe_key", (q) => q.eq("dedupeKey", deliveryKey))
-          .unique());
-
-      if (existingMessage === null) {
-        await ctx.db.insert("messages", {
-          workspaceId: account.workspaceId,
-          instagramAccountId: account._id,
-          conversationId,
-          contactId,
-          direction,
-          source: "webhook",
-          messageType: isStoryReply ? "story_reply" : "text",
-          text: displayText,
-          metaMessageId,
-          dedupeKey: deliveryKey,
-          deliveryStatus: isEcho ? "sent" : "received",
-          eventTime: messageTime,
-          webhookEventId,
-          automationRuleId: null,
-          storyAutomationId: null,
-          sequenceEnrollmentId: null,
-          storyReplyStoryId: storyReplyMetadata.storyId,
-          storyReplyStoryUrl: storyReplyMetadata.storyUrl,
-          storyReplyToken: storyReplyMetadata.replyToken,
-        });
-      }
-
-      const inboundInteraction = {
-        hasMessage,
-        text: rawText,
-        postbackPayload:
-          typeof item.postback?.payload === "string"
-            ? item.postback.payload.trim()
-            : null,
-        quickReplyPayload:
-          typeof item.message?.quick_reply?.payload === "string"
-            ? item.message.quick_reply.payload.trim()
-            : null,
+      await ensureWebhookMessageRecorded(ctx, {
+        account,
+        contactId,
+        conversationId,
+        webhookEventId,
         deliveryKey,
-      };
+        metaMessageId,
+        direction,
+        displayText,
+        messageTime,
+        isEcho,
+        isStoryReply,
+        storyReplyMetadata,
+      });
 
-      let handledByActiveSession = false;
+      const inboundInteraction = buildInboundInteraction({
+        hasMessage,
+        rawText,
+        item,
+        deliveryKey,
+      });
 
-      const activeStorySession = !isEcho
-        ? (
-            await ctx.db
-              .query("storyAutomationSessions")
-              .withIndex("by_conversation_id", (q) =>
-                q.eq("conversationId", conversationId),
-              )
-              .order("desc")
-              .take(10)
-          ).find(
-            (session) =>
-              session.currentStep !== "completed" &&
-              session.currentStep !== "link_sent" &&
-              session.currentStep !== "guardrail_tripped",
-          )
-        : null;
+      const handledByActiveSession = await continueActiveAutomationSessions(ctx, {
+        conversationId,
+        isEcho,
+        inboundInteraction,
+      });
 
-      if (activeStorySession) {
-        const sessionAutomation = await ctx.db.get(
-          activeStorySession.storyAutomationId,
-        );
-
-        if (sessionAutomation?.followGateEnabled) {
-          await ctx.scheduler.runAfter(
-            0,
-            internal.automations.storyFlow.processInboundStoryAutomationInteraction,
-            {
-              sessionId: activeStorySession._id,
-              ...inboundInteraction,
-            },
-          );
-        } else {
-          await advanceStoryAutomationSession(ctx, activeStorySession._id, {
-            hasMessage: inboundInteraction.hasMessage,
-            text: inboundInteraction.text,
-            postbackPayload: inboundInteraction.postbackPayload,
-            quickReplyPayload: inboundInteraction.quickReplyPayload,
-          });
-        }
-
-        handledByActiveSession = true;
-      }
-
-      const activeRuleSession = !handledByActiveSession && !isEcho
-        ? (
-            await ctx.db
-              .query("automationRuleSessions")
-              .withIndex("by_conversation_id", (q) =>
-                q.eq("conversationId", conversationId),
-              )
-              .order("desc")
-              .take(10)
-          ).find(
-            (session) =>
-              session.currentStep !== "completed" &&
-              session.currentStep !== "link_sent" &&
-              session.currentStep !== "guardrail_tripped",
-          )
-        : null;
-
-      if (activeRuleSession) {
-        const sessionRule = await ctx.db.get(activeRuleSession.automationRuleId);
-
-        if (sessionRule?.followGateEnabled) {
-          await ctx.scheduler.runAfter(
-            0,
-            internal.automations.ruleFlow.processInboundRuleAutomationInteraction,
-            {
-              sessionId: activeRuleSession._id,
-              ...inboundInteraction,
-            },
-          );
-        } else {
-          await advanceRuleAutomationSession(ctx, activeRuleSession._id, {
-            hasMessage: inboundInteraction.hasMessage,
-            text: inboundInteraction.text,
-            postbackPayload: inboundInteraction.postbackPayload,
-            quickReplyPayload: inboundInteraction.quickReplyPayload,
-          });
-        }
-
-        handledByActiveSession = true;
-      }
-
-      const activeCommentSession = !handledByActiveSession && !isEcho
-        ? (
-            await ctx.db
-              .query("commentAutomationSessions")
-              .withIndex("by_conversation_id", (q) =>
-                q.eq("conversationId", conversationId),
-              )
-              .order("desc")
-              .take(10)
-          ).find(
-            (session) =>
-              session.currentStep !== "completed" &&
-              session.currentStep !== "link_sent" &&
-              session.currentStep !== "guardrail_tripped",
-          )
-        : null;
-
-      if (activeCommentSession) {
-        const sessionAutomation = await ctx.db.get(
-          activeCommentSession.commentAutomationId,
-        );
-
-        if (sessionAutomation?.followGateEnabled) {
-          await ctx.scheduler.runAfter(
-            0,
-            internal.automations.commentFlow.processInboundCommentAutomationInteraction,
-            {
-              sessionId: activeCommentSession._id,
-              ...inboundInteraction,
-            },
-          );
-        } else {
-          await advanceCommentAutomationSession(ctx, activeCommentSession._id, {
-            hasMessage: inboundInteraction.hasMessage,
-            text: inboundInteraction.text,
-            postbackPayload: inboundInteraction.postbackPayload,
-            quickReplyPayload: inboundInteraction.quickReplyPayload,
-          });
-        }
-
-        handledByActiveSession = true;
-      }
-
-      const liveStoryAutomations =
-        !handledByActiveSession &&
-        !isEcho &&
-        !isPostback &&
-        !isQuickReply &&
-        isStoryReply
-          ? await ctx.db
-              .query("storyAutomations")
-              .withIndex("by_instagram_account_id_and_status", (q) =>
-                q.eq("instagramAccountId", account._id).eq("status", "live"),
-              )
-              .take(50)
-          : [];
-
-      const matchedStoryAutomation = liveStoryAutomations.find((automation) =>
-        matchesStoryAutomation({
-          automation,
-          storyId: storyReplyMetadata.storyId,
-          storyUrl: storyReplyMetadata.storyUrl,
-          replyToken: storyReplyMetadata.replyToken,
-        }),
-      );
-
-      if (matchedStoryAutomation) {
-        for (const tagId of matchedStoryAutomation.tagIds) {
-          const existingContactTag = await ctx.db
-            .query("contactTags")
-            .withIndex("by_contact_id_and_tag_id", (q) =>
-              q.eq("contactId", contactId).eq("tagId", tagId),
-            )
-            .unique();
-
-          if (existingContactTag === null) {
-            await ctx.db.insert("contactTags", {
-              workspaceId: account.workspaceId,
-              contactId,
-              tagId,
-              source: "story_automation",
-              appliedAt: messageTime,
-            });
-          }
-        }
-
-        await startStoryAutomationSession(ctx, matchedStoryAutomation, {
-          workspaceId: account.workspaceId,
-          instagramAccountId: account._id,
-          storyAutomationId: matchedStoryAutomation._id,
-          contactId,
-          conversationId,
-          matchedAt: messageTime,
-          triggerMessageId: metaMessageId,
-          storyId: storyReplyMetadata.storyId,
-          storyUrl: storyReplyMetadata.storyUrl,
-          storyToken: storyReplyMetadata.replyToken,
-        });
-
-        if (matchedStoryAutomation.sequenceDefinitionId !== null) {
-          await createSequenceEnrollment(ctx, {
-            workspaceId: account.workspaceId,
-            instagramAccountId: account._id,
+      const matchedStoryAutomation = handledByActiveSession
+        ? null
+        : await matchAndStartStoryAutomation(ctx, {
+            account,
             contactId,
             conversationId,
-            sequenceDefinitionId: matchedStoryAutomation.sequenceDefinitionId,
+            messageTime,
+            metaMessageId,
+            isEcho,
+            isPostback,
+            isQuickReply,
+            isStoryReply,
+            storyReplyMetadata,
           });
-        }
-      }
 
-      const activeRules =
-        !handledByActiveSession && !matchedStoryAutomation
-          ? await ctx.db
-              .query("automationRules")
-              .withIndex("by_instagram_account_id_and_is_active", (q) =>
-                q.eq("instagramAccountId", account._id).eq("isActive", true),
-              )
-              .take(50)
-          : [];
-
-      const matchedLegacyStoryReplyRule =
-        !handledByActiveSession &&
-        !matchedStoryAutomation &&
-        !isEcho &&
-        !isPostback &&
-        !isQuickReply &&
-        isStoryReply
-          ? activeRules
-              .filter((rule) => rule.triggerType === "story_reply")
-              .find((rule) =>
-                matchesAutomationRule({
-                  triggerType: rule.triggerType,
-                  matchType: rule.matchType,
-                  keywords: rule.keywords,
-                  messageText: rawText,
-                  isStoryReply,
-                }),
-              )
-          : undefined;
-
-      const matchedKeywordRule =
-        !handledByActiveSession &&
-        !matchedStoryAutomation &&
-        !isEcho &&
-        !isPostback &&
-        !isQuickReply
-          ? activeRules
-              .filter((rule) => rule.triggerType === "keyword")
-              .find((rule) =>
-                matchesAutomationRule({
-                  triggerType: rule.triggerType,
-                  matchType: rule.matchType,
-                  keywords: rule.keywords,
-                  messageText: rawText,
-                  isStoryReply,
-                }),
-              )
-          : undefined;
-
-      const matchedRule = matchedLegacyStoryReplyRule ?? matchedKeywordRule;
-
-      if (matchedRule) {
-        await ctx.db.patch(conversationId, {
-          lastAutomationRuleId: matchedRule._id,
-        });
-
-        for (const tagId of matchedRule.tagIds) {
-          const existingContactTag = await ctx.db
-            .query("contactTags")
-            .withIndex("by_contact_id_and_tag_id", (q) =>
-              q.eq("contactId", contactId).eq("tagId", tagId),
-            )
-            .unique();
-
-          if (existingContactTag === null) {
-            await ctx.db.insert("contactTags", {
-              workspaceId: account.workspaceId,
-              contactId,
-              tagId,
-              source: "rule",
-              appliedAt: messageTime,
-            });
-          }
-        }
-
-        await startRuleAutomationSession(ctx, matchedRule, {
-          workspaceId: account.workspaceId,
-          instagramAccountId: account._id,
-          automationRuleId: matchedRule._id,
+      if (!handledByActiveSession && matchedStoryAutomation === null) {
+        await matchAndStartRuleAutomation(ctx, {
+          account,
           contactId,
           conversationId,
-          matchedAt: messageTime,
+          messageTime,
+          rawText,
+          isEcho,
+          isPostback,
+          isQuickReply,
+          isStoryReply,
         });
-
-        if (matchedRule.sequenceDefinitionId !== null) {
-          await createSequenceEnrollment(ctx, {
-            workspaceId: account.workspaceId,
-            instagramAccountId: account._id,
-            contactId,
-            conversationId,
-            sequenceDefinitionId: matchedRule.sequenceDefinitionId,
-          });
-        }
       }
 
       await ctx.db.patch(webhookEventId, {
