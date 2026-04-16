@@ -122,14 +122,34 @@ export const getOverview = query({
   args: {},
   handler: async (ctx) => {
     const workspace = await requireCurrentWorkspace(ctx);
-    const [selectedAccount, accounts, rules, contacts, conversations] =
+    const [
+      selectedAccount,
+      accounts,
+      activeRules,
+      liveCommentAutomations,
+      liveStoryAutomations,
+      contacts,
+      conversations,
+    ] =
       await Promise.all([
         getSelectedWorkspaceInstagramAccount(ctx, workspace._id),
         listWorkspaceInstagramAccounts(ctx, workspace._id),
         ctx.db
           .query("automationRules")
-          .withIndex("by_workspace_id", (q) =>
-            q.eq("workspaceId", workspace._id),
+          .withIndex("by_workspace_id_and_is_active", (q) =>
+            q.eq("workspaceId", workspace._id).eq("isActive", true),
+          )
+          .take(100),
+        ctx.db
+          .query("commentAutomations")
+          .withIndex("by_workspace_id_and_status", (q) =>
+            q.eq("workspaceId", workspace._id).eq("status", "live"),
+          )
+          .take(100),
+        ctx.db
+          .query("storyAutomations")
+          .withIndex("by_workspace_id_and_status", (q) =>
+            q.eq("workspaceId", workspace._id).eq("status", "live"),
           )
           .take(100),
         ctx.db
@@ -148,10 +168,24 @@ export const getOverview = query({
           .take(100),
       ]);
 
-    const scopedRules =
+    const scopedActiveRules =
       selectedAccount === null
         ? []
-        : rules.filter((rule) => rule.instagramAccountId === selectedAccount._id);
+        : activeRules.filter(
+            (rule) => rule.instagramAccountId === selectedAccount._id,
+          );
+    const scopedLiveCommentAutomations =
+      selectedAccount === null
+        ? []
+        : liveCommentAutomations.filter(
+            (automation) => automation.instagramAccountId === selectedAccount._id,
+          );
+    const scopedLiveStoryAutomations =
+      selectedAccount === null
+        ? []
+        : liveStoryAutomations.filter(
+            (automation) => automation.instagramAccountId === selectedAccount._id,
+          );
     const scopedContacts =
       selectedAccount === null
         ? []
@@ -256,10 +290,15 @@ export const getOverview = query({
         reconnectRequired: account.reconnectRequired ?? false,
         lastWebhookAt: account.lastWebhookAt,
         lastError: account.lastError,
-        activeRules: rules.filter(
-          (rule) =>
-            rule.instagramAccountId === account._id && rule.isActive,
-        ).length,
+        activeAutomations:
+          activeRules.filter((rule) => rule.instagramAccountId === account._id)
+            .length +
+          liveCommentAutomations.filter(
+            (automation) => automation.instagramAccountId === account._id,
+          ).length +
+          liveStoryAutomations.filter(
+            (automation) => automation.instagramAccountId === account._id,
+          ).length,
         contacts: contacts.filter(
           (contact) => contact.instagramAccountId === account._id,
         ).length,
@@ -268,7 +307,10 @@ export const getOverview = query({
         ).length,
       })),
       stats: {
-        activeRules: scopedRules.filter((rule) => rule.isActive).length,
+        activeAutomations:
+          scopedActiveRules.length +
+          scopedLiveCommentAutomations.length +
+          scopedLiveStoryAutomations.length,
         contacts: scopedContacts.length,
         conversations: scopedConversations.length,
         failuresToday,
