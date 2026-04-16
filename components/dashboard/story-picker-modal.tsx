@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { RefreshCw, Check, Image as ImageIcon, Film, Clock3 } from "lucide-react";
@@ -132,10 +133,13 @@ export function StoryPickerModal({
                   >
                     <div className="relative aspect-[9/16] bg-muted">
                       {previewUrl ? (
-                        <img
+                        <Image
                           src={previewUrl}
                           alt="Instagram story"
-                          className="h-full w-full object-cover"
+                          fill
+                          unoptimized
+                          sizes="(max-width: 768px) 50vw, 220px"
+                          className="object-cover"
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center">

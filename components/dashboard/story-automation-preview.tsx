@@ -1,10 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import Image from "next/image";
 import type { ReactNode } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Heart, ChevronLeft, Phone, Video, Image as ImageIcon, Send } from "lucide-react";
+import { useState } from "react";
 import type { LinkButtonConfig } from "@/components/dashboard/link-buttons-editor";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  ChevronLeft,
+  Heart,
+  Image as ImageIcon,
+  Phone,
+  Send,
+  Video,
+} from "lucide-react";
 
 type StoryPreviewSelection = {
   id: string;
@@ -58,7 +66,7 @@ export function StoryAutomationPreview({
 
       <div className="relative w-[300px]">
         <div className="rounded-[2.2rem] bg-[#1a1a1a] p-3 shadow-xl ring-1 ring-white/10">
-          <div className="flex items-center justify-between px-4 pt-1 pb-2">
+          <div className="flex items-center justify-between px-4 pb-2 pt-1">
             <span className="text-[10px] font-medium tabular-nums text-white/80">
               11:32
             </span>
@@ -129,17 +137,22 @@ function AccountAvatar({
 
   if (profilePictureUrl) {
     return (
-      <img
-        src={profilePictureUrl}
-        alt="Profile"
-        className={`${sizeClasses} rounded-full object-cover shrink-0`}
-      />
+      <div className={`relative shrink-0 overflow-hidden rounded-full ${sizeClasses}`}>
+        <Image
+          src={profilePictureUrl}
+          alt="Profile"
+          fill
+          unoptimized
+          sizes={size === "sm" ? "20px" : "28px"}
+          className="object-cover"
+        />
+      </div>
     );
   }
 
   return (
     <div
-      className={`${sizeClasses} rounded-full bg-gradient-to-br from-orange-400 to-pink-500 shrink-0`}
+      className={`${sizeClasses} shrink-0 rounded-full bg-gradient-to-br from-orange-400 to-pink-500`}
     />
   );
 }
@@ -159,7 +172,8 @@ function StoryView({
   triggerTokens: string[];
   replyFilter: "specific_words_or_reactions" | "any_word_or_reaction";
 }) {
-  const previewUrl = selectedStory?.thumbnailUrl || selectedStory?.mediaUrl || null;
+  const previewUrl =
+    selectedStory?.thumbnailUrl || selectedStory?.mediaUrl || null;
   const replyExample =
     replyFilter === "specific_words_or_reactions"
       ? triggerTokens[0] || "link"
@@ -181,10 +195,13 @@ function StoryView({
 
       <div className="relative mt-4 h-[420px]">
         {previewUrl ? (
-          <img
+          <Image
             src={previewUrl}
             alt="Story preview"
-            className="absolute inset-0 h-full w-full object-cover"
+            fill
+            unoptimized
+            sizes="300px"
+            className="object-cover"
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center bg-[#181818]">
@@ -196,7 +213,9 @@ function StoryView({
 
         <div className="absolute inset-x-0 bottom-12 px-8 text-center">
           <p className="text-3xl font-semibold leading-tight text-white">
-            {storyScope === "specific" ? "This automation is locked to one story" : "Your automation will work for any story"}
+            {storyScope === "specific"
+              ? "This automation is locked to one story"
+              : "Your automation will work for any story"}
           </p>
           <p className="mt-4 text-sm text-white/80">
             Replies like “{replyExample}” will trigger your DM flow.
@@ -226,9 +245,7 @@ function buildMessages(config: {
   followUpEnabled: boolean;
   followUpText: string;
 }) {
-  const messages: PreviewMessage[] = [
-    { side: "right", text: "Reply to story" },
-  ];
+  const messages: PreviewMessage[] = [{ side: "right", text: "Reply to story" }];
 
   if (config.reactionEnabled) {
     messages.push({
