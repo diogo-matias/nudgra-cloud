@@ -4,6 +4,7 @@ import { useConvexAuth } from "convex/react";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { GoogleSignInButton } from "@/components/auth/GoogleSignInButton";
+import { NudgraLogo } from "@/components/logo";
 
 export default function SignIn() {
   const { isAuthenticated, isLoading } = useConvexAuth();
@@ -19,9 +20,7 @@ export default function SignIn() {
     <div className="min-h-screen bg-background flex flex-col items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <span className="font-semibold text-2xl tracking-tight text-foreground">
-            nudgra
-          </span>
+          <NudgraLogo size="lg" />
         </div>
 
         <div className="bg-card border border-border rounded-xl p-8 shadow-sm">
