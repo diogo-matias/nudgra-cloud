@@ -1,199 +1,184 @@
 # Nudgra Technical Architecture
 
-For product context, scope, and goals, see [About Nudgra](../ABOUT_PROJECT.md).
-For the intended visual system and UI constraints, see [Design](../DESIGN.md).
+For product context, see [About Nudgra](../ABOUT_PROJECT.md) and [Product Overview](./product-overview.md).
 
-## Current Baseline
+## Current State
 
-As of April 7, 2026, this repo is still a Convex starter application:
+This repository is a working Instagram automation product, not a starter template.
 
-- `app/page.tsx` is a demo screen
-- `convex/schema.ts` only contains auth tables plus a `numbers` table
-- `convex/myFunctions.ts` is sample code
-- Convex Auth password login is enabled for dashboard access
+Today it includes:
 
-That matters because the documentation below is a target architecture, not a description of an already-built system.
+- Google sign-in for operators through Convex Auth
+- Workspace-scoped Instagram account connection through Meta OAuth
+- Keyword DM automations
+- Comment automations
+- Story reply automations
+- Contacts, conversations, logs, and tracked-link reporting
+- Convex schedulers for retries, follow-ups, and delayed work
 
-## Reality Check On "Self-Hosted"
-
-The product idea says "deploy once on Vercel and run it yourself." The current implementation direction is:
-
-- Next.js app in your own Vercel account
-- `shadcn` as the frontend component system, with components added only when needed
-- Convex as the database, function runtime, and scheduler
-
-That is operator-controlled, but not strictly self-hosted end-to-end. If strict self-hosting is non-negotiable, replace Convex with a self-hosted backend before going deeper into product work. If the real goal is "no ManyChat subscription and full app ownership," the current stack is still viable.
-
-## Recommended Architecture
+## System Shape
 
 ```mermaid
 flowchart LR
-    U["Operator"] --> V["Next.js Dashboard (Vercel)"]
-    I["Instagram User"] --> M["Meta Webhooks / Graph API"]
-    M --> W["Convex HTTP Webhook Endpoint"]
-    W --> D["Convex Tables"]
-    D --> A["Automation Engine"]
-    A --> Q["Scheduled Jobs / Delays"]
-    A --> S["Send Service"]
+    O["Operator"] --> N["Next.js dashboard"]
+    N --> C["Convex queries / mutations / actions"]
+    I["Instagram user"] --> M["Meta webhooks / Graph API"]
+    M --> H["Convex HTTP webhook endpoint"]
+    H --> W["Webhook ingestion + persistence"]
+    W --> D["Convex tables"]
+    D --> A["Automation flows"]
+    A --> S["Delivery queue + Meta send helpers"]
+    A --> Q["Convex scheduler"]
     S --> M
-    V --> D
 ```
 
-## Platform Choice
+## Runtime Responsibilities
 
-### Recommended Path For MVP
+### Next.js app
 
-Use the Instagram API with Instagram Login.
+- Renders the operator dashboard under `app/dashboard/**`
+- Handles account-connection callback routes under `app/api/meta/**`
+- Uses Convex React hooks for authenticated reads and writes
+- Keeps most UI logic in `components/dashboard/**` and `lib/*-ui.ts`
 
-Why:
+### Convex backend
 
-- Meta's current Instagram Login flow does not require a Facebook Page to be linked
-- it uses the current `instagram_business_*` scope names
-- it fits the single-account, self-operated MVP better
+- Stores all domain state in `convex/schema.ts`
+- Owns workspace/auth/account permissions in `convex/lib/auth.ts`
+- Exposes feature APIs from modules such as `accounts.ts`, `contacts.ts`, `dashboard.ts`, and `automations/**`
+- Handles webhook verification and ingestion through `convex/http.ts` and `convex/meta/webhooks.ts`
+- Schedules follow-ups, retries, and sequence steps
 
-### Fallback Path
+### Meta integration
 
-Use the older Facebook Login / Messenger Platform path only if you find a feature gap that blocks the MVP. That path still matters, but it adds Page linkage and a more complex token model.
+- OAuth token exchange and account sync live in `convex/meta/**`
+- Webhooks are treated as the source of truth for inbound activity
+- Outbound delivery uses shared send helpers plus delivery-attempt logging
 
-## Meta Constraints That Shape The Architecture
+## Core Domain Model
 
-- Only Instagram professional accounts are supported
-- A user must initiate the conversation before Nudgra can automate inside that thread
-- Standard access is enough for accounts you own or manage and add to the app; advanced access is required for third-party customer accounts
-- App testers in development must hold the right app/account roles
-- Group messaging is not supported
-- Old requests older than 30 days may disappear from API results
-- Automated messaging must respect the standard 24-hour window; the `HUMAN_AGENT` path is explicitly for human support, not automation
-
-These constraints mean Nudgra must be event-driven, policy-aware, and careful about what it promises in the UI.
-
-## Recommended Convex Responsibilities
-
-### HTTP Endpoints
-
-- Meta webhook verification
-- Meta webhook ingestion
-- optional OAuth callback helpers if you keep the auth exchange inside Convex
-
-### Database
-
-- account records
-- token metadata
-- contacts
-- conversations
-- inbound and outbound messages
-- automation rules
-- sequence enrollments
-- audit events and failures
-
-### Scheduling
-
-- delayed sequence steps
-- retries for transient Graph API failures
-- cleanup and token refresh jobs
-
-### Internal Services
-
-- send-message service with policy checks
-- webhook deduplication
-- rule evaluation
-- tagging and sequence enrollment
-
-## Proposed Data Model
-
-The current `numbers` demo table should be replaced with domain tables similar to these:
+The main tables in `convex/schema.ts` are:
 
 | Table | Purpose |
 | --- | --- |
-| `users` | dashboard users from Convex Auth |
-| `workspaces` | operator-owned workspace metadata |
+| `users` | dashboard operators |
+| `workspaces` | account grouping and ownership boundary |
 | `instagramAccounts` | connected Instagram professional accounts |
-| `instagramAuthSessions` | token metadata, scopes, refresh state |
-| `contacts` | external Instagram users the account has interacted with |
-| `conversations` | conversation-level state and timestamps |
-| `messages` | inbound and outbound message records |
-| `automationRules` | keyword rules and trigger configuration |
-| `sequenceDefinitions` | reusable follow-up flows |
-| `sequenceEnrollments` | contact enrollment and next step state |
-| `tags` | workspace-defined tags |
-| `contactTags` | join table between contacts and tags |
-| `webhookEvents` | raw inbound event log and dedupe keys |
-| `deliveryAttempts` | outbound delivery attempt log |
+| `contacts` | Instagram users who interact with an account |
+| `conversations` | per-contact thread state and message-window timestamps |
+| `messages` | normalized inbound and outbound message history |
+| `automationRules` | keyword and legacy story-reply DM rules |
+| `commentAutomations` | comment-triggered DM workflows |
+| `storyAutomations` | story-reply workflows |
+| `automationRuleSessions` | per-contact rule progression |
+| `commentAutomationSessions` | per-contact comment automation progression |
+| `storyAutomationSessions` | per-contact story automation progression |
+| `deliveryAttempts` | outbound send attempts and Meta failures |
+| `webhookEvents` | parsed inbound webhook items with dedupe keys |
+| `webhookReceipts` | raw webhook POST receipts and parser outcome |
+| `contactAutomationMemberships` | contact-to-automation history for read models |
+| `contactEmails` | emails captured in automations |
+| `sequenceDefinitions` / `sequenceEnrollments` | delayed follow-up sequences |
+| `tags` / `contactTags` | automation-applied tagging |
 
-Keep the schema normalized. Do not store growing message histories, tags, or sequence step lists as unbounded arrays on a single document.
+## Feature Boundaries
 
-## Suggested Convex Module Layout
+### Accounts and auth
+
+- `convex/accounts.ts` owns selected-account context, connection lifecycle, and workspace-scoped account reads.
+- `convex/lib/auth.ts` is the main guardrail for workspace access checks.
+
+### Automations
+
+- `convex/automations/rules.ts` manages CRUD for keyword DM automations.
+- `convex/automations/commentAutomations.ts` manages comment automation CRUD and serialization.
+- `convex/automations/storyAutomations.ts` manages story automation CRUD and serialization.
+- `convex/automations/*Flow.ts` owns runtime session progression after a match occurs.
+- `convex/automations/sessionShared.ts` contains the shared follow-gate, email extraction, tracked-link, and guardrail helpers used across rule, comment, and story flows.
+
+### Meta/webhook pipeline
+
+- `convex/meta/webhooks.ts` is the ingestion entry point.
+- The ingestion flow is split into:
+  - webhook receipt parsing and account matching
+  - contact/conversation persistence
+  - message recording
+  - active automation-session continuation
+  - trigger matching and side effects
+- Outbound sends and policy-aware delivery live in `convex/meta/sendHelpers.ts`, `convex/meta/sendActions.ts`, and `convex/meta/deliveryPolicy.ts`.
+
+### Read models
+
+- `convex/lib/readModels.ts` centralizes higher-level contact/conversation serialization for the dashboard.
+- `convex/contacts.ts` uses account-scoped read paths for the contacts view.
+- `convex/dashboard.ts` powers the top-level dashboard overview and logs.
+
+## Inbound Flow
+
+1. Meta calls the Convex webhook endpoint.
+2. `convex/meta/webhooks.ts` stores a raw receipt in `webhookReceipts`.
+3. Each messaging item is deduped into `webhookEvents`.
+4. The matching contact and conversation are upserted.
+5. The inbound message is recorded in `messages`.
+6. Any active automation session for that conversation is advanced first.
+7. If no active session consumes the interaction, live story automations or rules are matched.
+8. Matching automations may apply tags, start sessions, and optionally enroll sequences.
+
+## Outbound Flow
+
+1. Automation flows decide what message or button batch to send.
+2. Shared guardrail helpers enforce per-session and per-conversation limits.
+3. Send helpers enqueue delivery attempts and talk to Meta.
+4. Tracked links are stored before outbound buttons are rewritten to app redirect URLs.
+5. Follow-up jobs are scheduled only when a workflow is still eligible.
+
+## UI Structure
+
+The automation editors follow the same general pattern:
+
+- route page does account lookup, loading states, and submit/toggle actions
+- shared dashboard component renders the form or detail UI
+- `lib/*-ui.ts` contains local normalization, validation, and summary helpers
+
+This keeps the page files thin and makes contributor changes safer.
+
+## Important Constraints
+
+- All reads and writes are workspace-scoped through the selected Instagram account.
+- Webhook deliveries must be idempotent.
+- Automated sends must respect messaging-window and safety-guardrail rules.
+- Public function names and schema shape are treated as stable unless a migration is planned.
+
+## Repo Map
 
 ```text
+app/
+  dashboard/
+  api/meta/
+components/dashboard/
 convex/
-  auth.ts
-  auth.config.ts
-  http.ts
-  schema.ts
   accounts.ts
   contacts.ts
-  conversations.ts
-  messages.ts
-  tags.ts
   dashboard.ts
+  messages.ts
   meta/
-    oauth.ts
-    webhooks.ts
-    send.ts
-    tokens.ts
   automations/
-    rules.ts
-    sequences.ts
-    scheduler.ts
+  lib/
+  schema.ts
+docs/
+tests/
 ```
 
-## Critical Engineering Decisions
+## Testing Strategy
 
-### 1. Webhook Idempotency
+The repo uses Vitest for backend and UI helper coverage.
 
-Meta can retry webhook deliveries. Store a dedupe key and raw payload before doing business logic.
+Key test areas today:
 
-### 2. Policy-Safe Sending
+- rule, comment, and story automation session flows
+- tracked-link routes
+- dashboard/account scoping
+- contacts inbox rendering and webhook persistence
+- multi-account isolation
 
-Before every outbound automated message, validate that the thread is still inside an allowed automation window. Do not rely on UI assumptions.
-
-### 3. Raw Event Storage
-
-Store raw webhook payloads for debugging. Instagram automation failures are difficult to diagnose without payload history.
-
-### 4. Queue Outbound Sends
-
-Do not send directly from every webhook handler path. Queue the send job so retries, logging, and backoff are consistent.
-
-### 5. Token Handling
-
-Do not scatter token logic across the app. Centralize token reads, refresh rules, expiration tracking, and reconnect flows.
-
-## Dashboard Surface For MVP
-
-The first useful dashboard only needs:
-
-- onboarding and account connection
-- rule list and rule editor
-- contacts view
-- conversation log
-- failed delivery log
-- sequence enrollment status
-
-## Recommended Next Code Changes
-
-1. Replace the demo `numbers` schema with Nudgra domain tables.
-2. Replace `convex/myFunctions.ts` with real domain modules.
-3. Add webhook routes in `convex/http.ts`.
-4. Replace the demo homepage with onboarding and rule management UI.
-5. Keep Convex Auth for the operator dashboard unless product requirements force an external auth provider.
-
-## Sources
-
-- [Meta official Postman profile](https://www.postman.com/meta/)
-- [Meta official Instagram API workspace overview](https://www.postman.com/meta/instagram/overview)
-- [Instagram API documentation](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api)
-- [Subscribe to webhooks](https://www.postman.com/meta/instagram/request/xqn84vq/subscribe-to-webhooks)
-- [Messaging reply to story webhook](https://www.postman.com/meta/instagram/request/f2smkqi/messaging-reply-to-story-webhook)
-- [Create Ice Breakers](https://www.postman.com/meta/instagram/request/fx7tg37/create-ice-breakers)
-- [Messenger Platform Instagram Getting Started](https://developers.facebook.com/docs/messenger-platform/instagram/get-started)
+When changing automation behavior, contributors should verify both `npm run lint` and `npm test`.
