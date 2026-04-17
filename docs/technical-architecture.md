@@ -1,6 +1,6 @@
 # Nudgra Technical Architecture
 
-For product context, see [About Nudgra](../ABOUT_PROJECT.md) and [Product Overview](./product-overview.md).
+For product context, see [Product Overview](./product-overview.md).
 
 ## Current State
 

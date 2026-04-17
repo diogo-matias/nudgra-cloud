@@ -29,12 +29,10 @@ This repository is no longer just a starter template. It already includes a real
 
 ## Project Docs
 
-- [About Nudgra](./ABOUT_PROJECT.md)
 - [Design](./DESIGN.md)
 - [Product Overview](./docs/product-overview.md)
 - [Technical Architecture](./docs/technical-architecture.md)
 - [Meta Setup Notes](./docs/meta-setup.md)
-- [MVP TODOs](./docs/mvp-todo.md)
 - [Contributing](./CONTRIBUTING.md)
 - [Security Policy](./SECURITY.md)
 - [Trademark Policy](./TRADEMARKS.md)

@@ -47,7 +47,6 @@ To reach MVP quickly, Nudgra should focus on the smallest set of features that c
 - AI-generated replies
 - Advanced analytics and attribution
 - Team roles and permissions beyond a single operator
-- Open-source packaging work
 
 The reason to cut multi-account from v1 is simple: it adds account scoping, onboarding complexity, token lifecycle edge cases, UI complexity, and more failure modes before the first automation is even proven.
 
@@ -82,4 +81,3 @@ Once the single-account flow is stable, the next sensible expansions are:
 - comment-triggered private replies
 - persistent menu and ice breakers
 - better templates and onboarding presets
-- open-source cleanup and public setup guides

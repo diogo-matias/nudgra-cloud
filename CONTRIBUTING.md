@@ -64,7 +64,7 @@ Changes that should usually be discussed first:
 - Follow the existing project structure and naming.
 - Keep external behavior stable unless the change explicitly intends otherwise.
 - Prefer account-scoped data access over workspace-wide scans when touching dashboard reads.
-- For Convex work, follow the repo guidance in `AGENTS.md` and `convex/_generated/ai/guidelines.md`.
+- For Convex work, follow the repo guidance in `convex/_generated/ai/guidelines.md`.
 
 ## Branding
 
