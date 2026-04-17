@@ -8,7 +8,7 @@ import {
   MutationCtx,
 } from "../_generated/server";
 import { v } from "convex/values";
-import { META_GRAPH_API_VERSION, requireSiteUrl } from "../meta/config";
+import { META_GRAPH_API_VERSION } from "../meta/config";
 import {
   type AutomatedButton,
   queueAutomatedButtonTemplate,
@@ -27,6 +27,16 @@ import {
   isMetaConsentRequiredError,
   parseMetaApiError,
 } from "../meta/authShared";
+import {
+  buildAutomationGuardrailReason,
+  chunkButtons,
+  createTrackedLinkButtons,
+  extractEmail,
+  getFollowGateInputMode,
+  hasInboundInteraction,
+  isTerminalAutomationSessionStep,
+  type FollowGateCheckStatus,
+} from "./sessionShared";
 
 type CommentAutomation = Doc<"commentAutomations">;
 type WebUrlButton = Extract<AutomatedButton, { type: "web_url" }>;
@@ -61,8 +71,6 @@ type AdvanceSessionInput = {
   postbackPayload: string | null;
   quickReplyPayload: string | null;
 };
-type FollowGateCheckStatus = "following" | "not_following" | "consent_required";
-type FollowGateInputMode = "button" | "reply";
 type CommentDeliveryKind = "response_dm" | "private_reply";
 type CommentDeliveryContext = {
   deliveryKind?: CommentDeliveryKind;
@@ -87,18 +95,6 @@ const OPENING_DM_POSTBACK_PAYLOAD = "comment_automation:opening_dm";
 const FOLLOW_GATE_POSTBACK_PAYLOAD = "comment_automation:follow_gate";
 const FOLLOW_GATE_BUTTON_TEXT = "I'm following";
 
-function getFollowGateInputMode(consentRequired: boolean): FollowGateInputMode {
-  return consentRequired ? "reply" : "button";
-}
-
-function hasInboundInteraction(inbound: AdvanceSessionInput) {
-  return (
-    inbound.hasMessage ||
-    inbound.postbackPayload !== null ||
-    inbound.quickReplyPayload !== null
-  );
-}
-
 function matchesOpeningDmInteraction(
   automation: Pick<CommentAutomation, "openingDmButtonText">,
   inbound: AdvanceSessionInput,
@@ -121,28 +117,6 @@ function matchesFollowGateInteraction(
   }
 
   return hasInboundInteraction(inbound);
-}
-
-function isTerminalSessionStep(
-  step: Doc<"commentAutomationSessions">["currentStep"],
-) {
-  return (
-    step === "completed" || step === "link_sent" || step === "guardrail_tripped"
-  );
-}
-
-function buildGuardrailReason(args: {
-  limitType: "session" | "conversation_window";
-  limit: number;
-  purpose: string;
-  windowMs?: number;
-}) {
-  const suffix = args.limit === 1 ? "" : "s";
-  if (args.limitType === "session") {
-    return `Safety guardrail paused this automation after ${args.limit} outbound DM${suffix} in the same session while sending ${args.purpose}.`;
-  }
-
-  return `Safety guardrail paused this automation after ${args.limit} outbound DM${suffix} from the same automation type in the same conversation within ${formatGuardrailWindowLabel(args.windowMs ?? AUTOMATION_CONVERSATION_BURST_WINDOW_MS)} while sending ${args.purpose}.`;
 }
 
 async function tripCommentAutomationGuardrail(
@@ -201,10 +175,14 @@ async function queueGuardedCommentAutomationTextReply(
     await tripCommentAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
-      reason: buildGuardrailReason({
+      reason: buildAutomationGuardrailReason({
+        automationLabel: "automation",
         limitType: "session",
         limit: COMMENT_AUTOMATION_SESSION_MESSAGE_LIMIT,
         purpose: args.purpose,
+        windowLabel: formatGuardrailWindowLabel(
+          AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        ),
       }),
     });
     return false;
@@ -223,11 +201,14 @@ async function queueGuardedCommentAutomationTextReply(
     await tripCommentAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
-      reason: buildGuardrailReason({
+      reason: buildAutomationGuardrailReason({
+        automationLabel: "automation",
         limitType: "conversation_window",
         limit: AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
         purpose: args.purpose,
-        windowMs: AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        windowLabel: formatGuardrailWindowLabel(
+          AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        ),
       }),
     });
     return false;
@@ -302,10 +283,14 @@ async function queueGuardedCommentAutomationButtonTemplate(
     await tripCommentAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
-      reason: buildGuardrailReason({
+      reason: buildAutomationGuardrailReason({
+        automationLabel: "automation",
         limitType: "session",
         limit: COMMENT_AUTOMATION_SESSION_MESSAGE_LIMIT,
         purpose: args.purpose,
+        windowLabel: formatGuardrailWindowLabel(
+          AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        ),
       }),
     });
     return false;
@@ -324,11 +309,14 @@ async function queueGuardedCommentAutomationButtonTemplate(
     await tripCommentAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
-      reason: buildGuardrailReason({
+      reason: buildAutomationGuardrailReason({
+        automationLabel: "automation",
         limitType: "conversation_window",
         limit: AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
         purpose: args.purpose,
-        windowMs: AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        windowLabel: formatGuardrailWindowLabel(
+          AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        ),
       }),
     });
     return false;
@@ -373,16 +361,6 @@ async function queueGuardedCommentAutomationButtonTemplate(
   });
 
   return true;
-}
-
-function chunkButtons(buttons: AutomatedButton[], size: number) {
-  const chunks: AutomatedButton[][] = [];
-
-  for (let index = 0; index < buttons.length; index += size) {
-    chunks.push(buttons.slice(index, index + size));
-  }
-
-  return chunks;
 }
 
 function getLinkButtons(
@@ -466,7 +444,7 @@ export async function startCommentAutomationSession(
     args.commentAutomationId,
   );
   const activeSession = existingSessions.find(
-    (session) => !isTerminalSessionStep(session.currentStep),
+    (session) => !isTerminalAutomationSessionStep(session.currentStep),
   );
 
   if (activeSession) {
@@ -600,7 +578,7 @@ export async function advanceCommentAutomationSession(
   inbound: AdvanceSessionInput,
 ) {
   const session = await ctx.db.get(sessionId);
-  if (!session || isTerminalSessionStep(session.currentStep)) {
+  if (!session || isTerminalAutomationSessionStep(session.currentStep)) {
     return null;
   }
 
@@ -864,37 +842,30 @@ async function sendLinkDm(
 
   const messageText = args.automation.linkDmText.trim() || DEFAULT_LINK_MESSAGE;
   const rawLinkButtons = getLinkButtons(args.automation);
-  const trackedButtons: WebUrlButton[] = [];
-
-  if (rawLinkButtons.length > 0) {
-    const siteUrl = requireSiteUrl();
-    const createdAt = Date.now();
-
-    for (const [buttonIndex, button] of rawLinkButtons.entries()) {
-      const token = crypto.randomUUID();
+  const trackedButtons = await createTrackedLinkButtons({
+    buttons: rawLinkButtons,
+    routePrefix: "/api/comment-automation/links",
+    insertTrackedLink: async ({
+      token,
+      destinationUrl,
+      label,
+      buttonIndex,
+      createdAt,
+    }) => {
       await ctx.db.insert("commentAutomationTrackedLinks", {
         workspaceId: session.workspaceId,
         instagramAccountId: session.instagramAccountId,
         commentAutomationId: session.commentAutomationId,
         sessionId: session._id,
         token,
-        destinationUrl: button.url,
-        label: button.title,
+        destinationUrl,
+        label,
         buttonIndex,
         clickedAt: null,
         createdAt,
       });
-
-      trackedButtons.push({
-        type: "web_url",
-        title: button.title,
-        url: new URL(
-          `/api/comment-automation/links/${token}`,
-          siteUrl,
-        ).toString(),
-      });
-    }
-  }
+    },
+  });
 
   if (trackedButtons.length > 0) {
     const buttonBatches = chunkButtons(trackedButtons, 3);
@@ -1282,16 +1253,6 @@ export const processInboundCommentAutomationInteraction = internalAction({
     return null;
   },
 });
-
-function extractEmail(text: string | null): string | null {
-  if (!text) {
-    return null;
-  }
-
-  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
-  const match = text.match(emailRegex);
-  return match ? match[0].toLowerCase() : null;
-}
 
 export function matchesCommentAutomation(args: {
   automation: Pick<

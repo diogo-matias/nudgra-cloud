@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState } from "react";
 import { useAction, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -145,10 +146,13 @@ export function PostPickerModal({
                     {/* Thumbnail */}
                     <div className="relative aspect-square bg-muted">
                       {imageUrl ? (
-                        <img
+                        <Image
                           src={imageUrl}
                           alt={item.caption ?? "Post"}
-                          className="w-full h-full object-cover"
+                          fill
+                          unoptimized
+                          sizes="(max-width: 768px) 33vw, 180px"
+                          className="object-cover"
                         />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center">

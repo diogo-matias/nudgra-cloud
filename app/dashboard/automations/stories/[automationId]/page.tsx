@@ -37,11 +37,10 @@ export default function StoryAutomationDetailPage() {
     api.automations.storyAutomations.getStoryAutomationCreationOptions,
     selectedAccount ? { accountId: selectedAccount.id } : "skip",
   );
-  const liveStories =
-    useQuery(
-      api.meta.storyQueries.listCachedStories,
-      selectedAccount ? { accountId: selectedAccount.id } : "skip",
-    ) ?? [];
+  const liveStoriesQuery = useQuery(
+    api.meta.storyQueries.listCachedStories,
+    selectedAccount ? { accountId: selectedAccount.id } : "skip",
+  );
   const updateStoryAutomation = useMutation(
     api.automations.storyAutomations.updateStoryAutomation,
   );
@@ -109,6 +108,7 @@ export default function StoryAutomationDetailPage() {
       return null;
     }
 
+    const liveStories = liveStoriesQuery ?? [];
     const liveStory =
       liveStories.find((item) => item.storyId === selectedStoryId) ?? null;
     if (liveStory) {
@@ -125,7 +125,7 @@ export default function StoryAutomationDetailPage() {
     return selectedStorySnapshot && selectedStorySnapshot.id === selectedStoryId
       ? selectedStorySnapshot
       : null;
-  }, [liveStories, selectedStoryId, selectedStorySnapshot]);
+  }, [liveStoriesQuery, selectedStoryId, selectedStorySnapshot]);
 
   const normalizedTriggerTokens = getNormalizedStoryAutomationTokens(
     triggerTokens,
@@ -338,6 +338,7 @@ export default function StoryAutomationDetailPage() {
         selectedStoryId={selectedStoryId}
         onSelectionChange={(storyId) => {
           setSelectedStoryId(storyId);
+          const liveStories = liveStoriesQuery ?? [];
           const liveStory =
             liveStories.find((item) => item.storyId === storyId) ?? null;
           setSelectedStorySnapshot(

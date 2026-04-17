@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useConvexAuth } from "convex/react";
+import { NudgraLogo } from "@/components/logo";
 
 export default function Home() {
   const { isAuthenticated, isLoading } = useConvexAuth();
@@ -10,9 +11,7 @@ export default function Home() {
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-10 border-b border-border bg-background/80 backdrop-blur-sm">
         <div className="mx-auto flex h-16 max-w-5xl items-center justify-between px-6">
-          <span className="text-lg font-semibold tracking-tight text-foreground">
-            nudgra
-          </span>
+          <NudgraLogo />
           {!isLoading ? (
             <nav>
               {isAuthenticated ? (

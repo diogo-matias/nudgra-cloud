@@ -21,7 +21,7 @@ export default function OverviewPage() {
   const data = useQuery(api.dashboard.getOverview);
   const selectedAccount = data?.selectedAccount ?? null;
   const stats = data?.stats ?? {
-    activeRules: 0,
+    activeAutomations: 0,
     contacts: 0,
     conversations: 0,
     failuresToday: 0,
@@ -68,7 +68,11 @@ export default function OverviewPage() {
 
         {/* Stats */}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <StatCard label="Active rules" value={String(stats.activeRules)} icon={Zap} />
+          <StatCard
+            label="Active automations"
+            value={String(stats.activeAutomations)}
+            icon={Zap}
+          />
           <StatCard label="Contacts" value={String(stats.contacts)} icon={Users} />
           <StatCard
             label="Conversations"
@@ -157,7 +161,7 @@ export default function OverviewPage() {
                         </p>
                       ) : null}
                       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
-                        <span>{account.activeRules} rules</span>
+                        <span>{account.activeAutomations} automations</span>
                         <span>{account.contacts} contacts</span>
                         <span>{account.conversations} conversations</span>
                       </div>

@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Menu } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { DashboardSidebar } from "@/components/dashboard/sidebar";
+import { NudgraLogo } from "@/components/logo";
 
 export default function DashboardLayout({
   children,
@@ -63,11 +64,8 @@ export default function DashboardLayout({
           >
             <Menu className="size-5" />
           </button>
-          <Link
-            href="/"
-            className="text-sm font-semibold tracking-tight text-foreground"
-          >
-            nudgra
+          <Link href="/">
+            <NudgraLogo size="sm" />
           </Link>
         </div>
         {children}

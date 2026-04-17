@@ -8,7 +8,7 @@ import {
   MutationCtx,
 } from "../_generated/server";
 import { v } from "convex/values";
-import { META_GRAPH_API_VERSION, requireSiteUrl } from "../meta/config";
+import { META_GRAPH_API_VERSION } from "../meta/config";
 import {
   type AutomatedButton,
   queueAutomatedButtonTemplate,
@@ -26,7 +26,6 @@ import {
   getRecentConversationOutboundAttemptCount,
 } from "./guardrails";
 import {
-  extractEmail,
   getAutomationRuleValidationIssues,
   getEffectiveRuleLinkDmText,
   RULE_DEFAULT_FOLLOW_GATE_MESSAGE,
@@ -37,6 +36,16 @@ import {
   RULE_FOLLOW_UP_DELAY_MS,
   RULE_INVALID_EMAIL_PROMPT,
 } from "./ruleShared";
+import {
+  buildAutomationGuardrailReason,
+  chunkButtons,
+  createTrackedLinkButtons,
+  extractEmail,
+  getFollowGateInputMode,
+  hasInboundInteraction,
+  isTerminalAutomationSessionStep,
+  type FollowGateCheckStatus,
+} from "./sessionShared";
 
 type RuleAutomation = Doc<"automationRules">;
 type WebUrlButton = Extract<AutomatedButton, { type: "web_url" }>;
@@ -66,23 +75,8 @@ type AdvanceSessionInput = {
   quickReplyPayload: string | null;
 };
 
-type FollowGateCheckStatus = "following" | "not_following" | "consent_required";
-type FollowGateInputMode = "button" | "reply";
-
 const RULE_AUTOMATION_SESSION_MESSAGE_LIMIT = 8;
 const FOLLOW_GATE_POSTBACK_PAYLOAD = "rule_automation:follow_gate";
-
-function getFollowGateInputMode(consentRequired: boolean): FollowGateInputMode {
-  return consentRequired ? "reply" : "button";
-}
-
-function hasInboundInteraction(inbound: AdvanceSessionInput) {
-  return (
-    inbound.hasMessage ||
-    inbound.postbackPayload !== null ||
-    inbound.quickReplyPayload !== null
-  );
-}
 
 function matchesFollowGateInteraction(
   session: Pick<Doc<"automationRuleSessions">, "followGateInputMode">,
@@ -95,28 +89,6 @@ function matchesFollowGateInteraction(
   }
 
   return hasInboundInteraction(inbound);
-}
-
-function isTerminalSessionStep(
-  step: Doc<"automationRuleSessions">["currentStep"],
-) {
-  return (
-    step === "completed" || step === "link_sent" || step === "guardrail_tripped"
-  );
-}
-
-function buildGuardrailReason(args: {
-  limitType: "session" | "conversation_window";
-  limit: number;
-  purpose: string;
-  windowMs?: number;
-}) {
-  const suffix = args.limit === 1 ? "" : "s";
-  if (args.limitType === "session") {
-    return `Safety guardrail stopped this DM automation after ${args.limit} outbound DM${suffix} in the same session while sending ${args.purpose}.`;
-  }
-
-  return `Safety guardrail stopped this DM automation after ${args.limit} outbound DM${suffix} from the same automation type in the same conversation within ${formatGuardrailWindowLabel(args.windowMs ?? AUTOMATION_CONVERSATION_BURST_WINDOW_MS)} while sending ${args.purpose}.`;
 }
 
 function getRuleAutomationValidationIssues(
@@ -175,10 +147,14 @@ async function queueGuardedRuleAutomationTextReply(
   if (sessionOutboundCount + 1 > RULE_AUTOMATION_SESSION_MESSAGE_LIMIT) {
     await tripRuleAutomationGuardrail(ctx, {
       session,
-      reason: buildGuardrailReason({
+      reason: buildAutomationGuardrailReason({
+        automationLabel: "DM automation",
         limitType: "session",
         limit: RULE_AUTOMATION_SESSION_MESSAGE_LIMIT,
         purpose: args.purpose,
+        windowLabel: formatGuardrailWindowLabel(
+          AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        ),
       }),
     });
     return false;
@@ -196,11 +172,14 @@ async function queueGuardedRuleAutomationTextReply(
   ) {
     await tripRuleAutomationGuardrail(ctx, {
       session,
-      reason: buildGuardrailReason({
+      reason: buildAutomationGuardrailReason({
+        automationLabel: "DM automation",
         limitType: "conversation_window",
         limit: AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
         purpose: args.purpose,
-        windowMs: AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        windowLabel: formatGuardrailWindowLabel(
+          AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        ),
       }),
     });
     return false;
@@ -250,10 +229,14 @@ async function queueGuardedRuleAutomationButtonTemplate(
   if (sessionOutboundCount + 1 > RULE_AUTOMATION_SESSION_MESSAGE_LIMIT) {
     await tripRuleAutomationGuardrail(ctx, {
       session,
-      reason: buildGuardrailReason({
+      reason: buildAutomationGuardrailReason({
+        automationLabel: "DM automation",
         limitType: "session",
         limit: RULE_AUTOMATION_SESSION_MESSAGE_LIMIT,
         purpose: args.purpose,
+        windowLabel: formatGuardrailWindowLabel(
+          AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        ),
       }),
     });
     return false;
@@ -271,11 +254,14 @@ async function queueGuardedRuleAutomationButtonTemplate(
   ) {
     await tripRuleAutomationGuardrail(ctx, {
       session,
-      reason: buildGuardrailReason({
+      reason: buildAutomationGuardrailReason({
+        automationLabel: "DM automation",
         limitType: "conversation_window",
         limit: AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
         purpose: args.purpose,
-        windowMs: AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        windowLabel: formatGuardrailWindowLabel(
+          AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        ),
       }),
     });
     return false;
@@ -298,16 +284,6 @@ async function queueGuardedRuleAutomationButtonTemplate(
   });
 
   return true;
-}
-
-function chunkButtons(buttons: AutomatedButton[], size: number) {
-  const chunks: AutomatedButton[][] = [];
-
-  for (let index = 0; index < buttons.length; index += size) {
-    chunks.push(buttons.slice(index, index + size));
-  }
-
-  return chunks;
 }
 
 function getLinkButtons(
@@ -353,7 +329,7 @@ export async function startRuleAutomationSession(
     args.automationRuleId,
   );
   const activeSession = existingSessions.find(
-    (session) => !isTerminalSessionStep(session.currentStep),
+    (session) => !isTerminalAutomationSessionStep(session.currentStep),
   );
 
   if (activeSession) {
@@ -454,7 +430,7 @@ export async function advanceRuleAutomationSession(
   inbound: AdvanceSessionInput,
 ) {
   const session = await ctx.db.get(sessionId);
-  if (!session || isTerminalSessionStep(session.currentStep)) {
+  if (!session || isTerminalAutomationSessionStep(session.currentStep)) {
     return null;
   }
 
@@ -626,34 +602,30 @@ async function sendLinkDm(
       hasLinkButtons: getLinkButtons(args.automation).length > 0,
     }) || RULE_DEFAULT_LINK_MESSAGE;
   const rawLinkButtons = getLinkButtons(args.automation);
-  const trackedButtons: WebUrlButton[] = [];
-
-  if (rawLinkButtons.length > 0) {
-    const siteUrl = requireSiteUrl();
-    const createdAt = Date.now();
-
-    for (const [buttonIndex, button] of rawLinkButtons.entries()) {
-      const token = crypto.randomUUID();
+  const trackedButtons = await createTrackedLinkButtons({
+    buttons: rawLinkButtons,
+    routePrefix: "/api/rule-automation/links",
+    insertTrackedLink: async ({
+      token,
+      destinationUrl,
+      label,
+      buttonIndex,
+      createdAt,
+    }) => {
       await ctx.db.insert("automationRuleTrackedLinks", {
         workspaceId: session.workspaceId,
         instagramAccountId: session.instagramAccountId,
         automationRuleId: session.automationRuleId,
         sessionId: session._id,
         token,
-        destinationUrl: button.url,
-        label: button.title,
+        destinationUrl,
+        label,
         buttonIndex,
         clickedAt: null,
         createdAt,
       });
-
-      trackedButtons.push({
-        type: "web_url",
-        title: button.title,
-        url: new URL(`/api/rule-automation/links/${token}`, siteUrl).toString(),
-      });
-    }
-  }
+    },
+  });
 
   if (trackedButtons.length > 0) {
     const buttonBatches = chunkButtons(trackedButtons, 3);

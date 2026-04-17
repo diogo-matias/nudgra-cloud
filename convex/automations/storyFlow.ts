@@ -8,7 +8,7 @@ import {
   MutationCtx,
 } from "../_generated/server";
 import { v } from "convex/values";
-import { META_GRAPH_API_VERSION, requireSiteUrl } from "../meta/config";
+import { META_GRAPH_API_VERSION } from "../meta/config";
 import {
   type AutomatedButton,
   queueAutomatedButtonTemplate,
@@ -27,7 +27,6 @@ import {
   getRecentConversationOutboundAttemptCount,
 } from "./guardrails";
 import {
-  extractEmail,
   getEffectiveStoryLinkDmText,
   getStoryAutomationValidationIssues as getSharedStoryAutomationValidationIssues,
   STORY_DEFAULT_FOLLOW_GATE_MESSAGE,
@@ -39,6 +38,16 @@ import {
   STORY_INVALID_EMAIL_PROMPT,
   STORY_REACTION_EMOJI,
 } from "./storyShared";
+import {
+  buildAutomationGuardrailReason,
+  chunkButtons,
+  createTrackedLinkButtons,
+  extractEmail,
+  getFollowGateInputMode,
+  hasInboundInteraction,
+  isTerminalAutomationSessionStep,
+  type FollowGateCheckStatus,
+} from "./sessionShared";
 
 type StoryAutomation = Doc<"storyAutomations">;
 type WebUrlButton = Extract<AutomatedButton, { type: "web_url" }>;
@@ -81,23 +90,8 @@ type AdvanceSessionInput = {
   quickReplyPayload: string | null;
 };
 
-type FollowGateCheckStatus = "following" | "not_following" | "consent_required";
-type FollowGateInputMode = "button" | "reply";
-
 const STORY_AUTOMATION_SESSION_MESSAGE_LIMIT = 8;
 const FOLLOW_GATE_POSTBACK_PAYLOAD = "story_automation:follow_gate";
-
-function getFollowGateInputMode(consentRequired: boolean): FollowGateInputMode {
-  return consentRequired ? "reply" : "button";
-}
-
-function hasInboundInteraction(inbound: AdvanceSessionInput) {
-  return (
-    inbound.hasMessage ||
-    inbound.postbackPayload !== null ||
-    inbound.quickReplyPayload !== null
-  );
-}
 
 function matchesFollowGateInteraction(
   session: Pick<Doc<"storyAutomationSessions">, "followGateInputMode">,
@@ -110,28 +104,6 @@ function matchesFollowGateInteraction(
   }
 
   return hasInboundInteraction(inbound);
-}
-
-function isTerminalSessionStep(
-  step: Doc<"storyAutomationSessions">["currentStep"],
-) {
-  return (
-    step === "completed" || step === "link_sent" || step === "guardrail_tripped"
-  );
-}
-
-function buildGuardrailReason(args: {
-  limitType: "session" | "conversation_window";
-  limit: number;
-  purpose: string;
-  windowMs?: number;
-}) {
-  const suffix = args.limit === 1 ? "" : "s";
-  if (args.limitType === "session") {
-    return `Safety guardrail paused this story automation after ${args.limit} outbound DM${suffix} in the same session while sending ${args.purpose}.`;
-  }
-
-  return `Safety guardrail paused this story automation after ${args.limit} outbound DM${suffix} from the same automation type in the same conversation within ${formatGuardrailWindowLabel(args.windowMs ?? AUTOMATION_CONVERSATION_BURST_WINDOW_MS)} while sending ${args.purpose}.`;
 }
 
 function getLinkButtons(
@@ -242,10 +214,14 @@ async function queueGuardedStoryAutomationTextReply(
     await tripStoryAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
-      reason: buildGuardrailReason({
+      reason: buildAutomationGuardrailReason({
+        automationLabel: "story automation",
         limitType: "session",
         limit: STORY_AUTOMATION_SESSION_MESSAGE_LIMIT,
         purpose: args.purpose,
+        windowLabel: formatGuardrailWindowLabel(
+          AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        ),
       }),
     });
     return false;
@@ -264,11 +240,14 @@ async function queueGuardedStoryAutomationTextReply(
     await tripStoryAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
-      reason: buildGuardrailReason({
+      reason: buildAutomationGuardrailReason({
+        automationLabel: "story automation",
         limitType: "conversation_window",
         limit: AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
         purpose: args.purpose,
-        windowMs: AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        windowLabel: formatGuardrailWindowLabel(
+          AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        ),
       }),
     });
     return false;
@@ -320,10 +299,14 @@ async function queueGuardedStoryAutomationButtonTemplate(
     await tripStoryAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
-      reason: buildGuardrailReason({
+      reason: buildAutomationGuardrailReason({
+        automationLabel: "story automation",
         limitType: "session",
         limit: STORY_AUTOMATION_SESSION_MESSAGE_LIMIT,
         purpose: args.purpose,
+        windowLabel: formatGuardrailWindowLabel(
+          AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        ),
       }),
     });
     return false;
@@ -342,11 +325,14 @@ async function queueGuardedStoryAutomationButtonTemplate(
     await tripStoryAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
-      reason: buildGuardrailReason({
+      reason: buildAutomationGuardrailReason({
+        automationLabel: "story automation",
         limitType: "conversation_window",
         limit: AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
         purpose: args.purpose,
-        windowMs: AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        windowLabel: formatGuardrailWindowLabel(
+          AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        ),
       }),
     });
     return false;
@@ -396,10 +382,14 @@ async function queueGuardedStoryAutomationReaction(
     await tripStoryAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
-      reason: buildGuardrailReason({
+      reason: buildAutomationGuardrailReason({
+        automationLabel: "story automation",
         limitType: "session",
         limit: STORY_AUTOMATION_SESSION_MESSAGE_LIMIT,
         purpose: args.purpose,
+        windowLabel: formatGuardrailWindowLabel(
+          AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        ),
       }),
     });
     return false;
@@ -418,11 +408,14 @@ async function queueGuardedStoryAutomationReaction(
     await tripStoryAutomationGuardrail(ctx, {
       session,
       automation: args.automation,
-      reason: buildGuardrailReason({
+      reason: buildAutomationGuardrailReason({
+        automationLabel: "story automation",
         limitType: "conversation_window",
         limit: AUTOMATION_CONVERSATION_BURST_MESSAGE_LIMIT,
         purpose: args.purpose,
-        windowMs: AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        windowLabel: formatGuardrailWindowLabel(
+          AUTOMATION_CONVERSATION_BURST_WINDOW_MS,
+        ),
       }),
     });
     return false;
@@ -448,16 +441,6 @@ async function queueGuardedStoryAutomationReaction(
   });
 
   return true;
-}
-
-function chunkButtons(buttons: AutomatedButton[], size: number) {
-  const chunks: AutomatedButton[][] = [];
-
-  for (let index = 0; index < buttons.length; index += size) {
-    chunks.push(buttons.slice(index, index + size));
-  }
-
-  return chunks;
 }
 
 async function getLatestSessionsForStoryAutomation(
@@ -489,7 +472,7 @@ export async function startStoryAutomationSession(
     args.storyAutomationId,
   );
   const activeSession = existingSessions.find(
-    (session) => !isTerminalSessionStep(session.currentStep),
+    (session) => !isTerminalAutomationSessionStep(session.currentStep),
   );
 
   if (activeSession) {
@@ -609,7 +592,7 @@ export async function advanceStoryAutomationSession(
   inbound: AdvanceSessionInput,
 ) {
   const session = await ctx.db.get(sessionId);
-  if (!session || isTerminalSessionStep(session.currentStep)) {
+  if (!session || isTerminalAutomationSessionStep(session.currentStep)) {
     return null;
   }
 
@@ -780,34 +763,30 @@ async function sendLinkDm(
       hasLinkButtons: getLinkButtons(args.automation).length > 0,
     }) || STORY_DEFAULT_LINK_MESSAGE;
   const rawLinkButtons = getLinkButtons(args.automation);
-  const trackedButtons: WebUrlButton[] = [];
-
-  if (rawLinkButtons.length > 0) {
-    const siteUrl = requireSiteUrl();
-    const createdAt = Date.now();
-
-    for (const [buttonIndex, button] of rawLinkButtons.entries()) {
-      const token = crypto.randomUUID();
+  const trackedButtons = await createTrackedLinkButtons({
+    buttons: rawLinkButtons,
+    routePrefix: "/api/story-automation/links",
+    insertTrackedLink: async ({
+      token,
+      destinationUrl,
+      label,
+      buttonIndex,
+      createdAt,
+    }) => {
       await ctx.db.insert("storyAutomationTrackedLinks", {
         workspaceId: session.workspaceId,
         instagramAccountId: session.instagramAccountId,
         storyAutomationId: session.storyAutomationId,
         sessionId: session._id,
         token,
-        destinationUrl: button.url,
-        label: button.title,
+        destinationUrl,
+        label,
         buttonIndex,
         clickedAt: null,
         createdAt,
       });
-
-      trackedButtons.push({
-        type: "web_url",
-        title: button.title,
-        url: new URL(`/api/story-automation/links/${token}`, siteUrl).toString(),
-      });
-    }
-  }
+    },
+  });
 
   if (trackedButtons.length > 0) {
     const buttonBatches = chunkButtons(trackedButtons, 3);

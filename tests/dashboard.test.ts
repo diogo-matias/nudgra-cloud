@@ -144,6 +144,49 @@ async function seedRule(
   });
 }
 
+async function seedCommentAutomation(
+  t: ReturnType<typeof convexTest>,
+  args: {
+    workspaceId: Id<"workspaces">;
+    instagramAccountId: Id<"instagramAccounts">;
+    createdByUserId: Id<"users">;
+    name: string;
+    status?: "draft" | "live" | "paused";
+  },
+) {
+  return await t.run(async (ctx) => {
+    return await ctx.db.insert("commentAutomations", {
+      workspaceId: args.workspaceId,
+      instagramAccountId: args.instagramAccountId,
+      createdByUserId: args.createdByUserId,
+      name: args.name,
+      status: args.status ?? "live",
+      postScope: "specific",
+      selectedMediaIds: ["media_1"],
+      commentFilter: "specific_words",
+      triggerKeywords: ["guide"],
+      triggerKeywordLabels: ["guide"],
+      commentReplyEnabled: false,
+      commentReplyTexts: [],
+      openingDmEnabled: true,
+      openingDmText: "Sending the guide.",
+      openingDmButtonText: "Send me the guide",
+      followGateEnabled: false,
+      followGateText: "",
+      emailCollectionEnabled: false,
+      emailCollectionText: "",
+      linkDmText: "Here is the guide.",
+      linkUrl: "https://example.com/guide",
+      linkButtonText: "Open guide",
+      followUpEnabled: false,
+      followUpText: "",
+      triggerCount: 0,
+      lastTriggeredAt: null,
+      lastModifiedAt: BASE_TIME,
+    });
+  });
+}
+
 async function seedDeliveryAttempt(
   t: ReturnType<typeof convexTest>,
   args: {
@@ -244,6 +287,19 @@ describe("dashboard", () => {
       createdByUserId: fixture.userId,
       name: "Second account rule",
     });
+    await seedCommentAutomation(t, {
+      workspaceId: fixture.workspaceId,
+      instagramAccountId: first.accountId,
+      createdByUserId: fixture.userId,
+      name: "First account comment automation",
+    });
+    await seedCommentAutomation(t, {
+      workspaceId: fixture.workspaceId,
+      instagramAccountId: second.accountId,
+      createdByUserId: fixture.userId,
+      name: "Second account comment automation",
+      status: "paused",
+    });
 
     await seedDeliveryAttempt(t, {
       workspaceId: fixture.workspaceId,
@@ -287,7 +343,7 @@ describe("dashboard", () => {
 
     expect(overview.selectedAccount?.id).toBe(first.accountId);
     expect(overview.stats).toEqual({
-      activeRules: 1,
+      activeAutomations: 2,
       contacts: 1,
       conversations: 1,
       failuresToday: 1,
@@ -298,6 +354,46 @@ describe("dashboard", () => {
     });
     expect(overview.recentActivity[0]?.label).toContain("@user_first");
     expect(overview.recentActivity[0]?.label).toContain("first account");
+  });
+
+  it("counts live automations in overview even when no keyword rules exist", async () => {
+    const t = convexTest({ schema, modules });
+    const fixture = await seedWorkspace(t);
+    const authT = t.withIdentity({ subject: fixture.userId });
+
+    const connected = await connectAccount(t, fixture, {
+      state: "dashboard-comment-only",
+      externalId: "ig_dashboard_comment_only",
+      username: "comment_only",
+    });
+
+    await authT.mutation(api.accounts.selectAccount, {
+      accountId: connected.accountId,
+    });
+
+    await seedThread(t, {
+      workspaceId: fixture.workspaceId,
+      instagramAccountId: connected.accountId,
+      instagramAccountExternalId: "ig_dashboard_comment_only",
+      suffix: "comment-only",
+    });
+
+    await seedCommentAutomation(t, {
+      workspaceId: fixture.workspaceId,
+      instagramAccountId: connected.accountId,
+      createdByUserId: fixture.userId,
+      name: "Comment automation one",
+    });
+    await seedCommentAutomation(t, {
+      workspaceId: fixture.workspaceId,
+      instagramAccountId: connected.accountId,
+      createdByUserId: fixture.userId,
+      name: "Comment automation two",
+    });
+
+    const overview = await authT.query(api.dashboard.getOverview, {});
+
+    expect(overview.stats.activeAutomations).toBe(2);
   });
 
   it("includes Meta diagnostics for failed delivery logs", async () => {

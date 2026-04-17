@@ -342,7 +342,7 @@ export function RuleAutomationForm(props: RuleAutomationFormProps) {
                     Enable this rule
                   </p>
                   <p className="mt-0.5 text-xs text-muted-foreground">
-                    Turn this on when you're ready for it to reply
+                    Turn this on when you&apos;re ready for it to reply
                     automatically.
                   </p>
                 </div>

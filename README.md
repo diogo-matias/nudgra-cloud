@@ -29,12 +29,13 @@ This repository is no longer just a starter template. It already includes a real
 
 ## Project Docs
 
-- [About Nudgra](./ABOUT_PROJECT.md)
 - [Design](./DESIGN.md)
 - [Product Overview](./docs/product-overview.md)
 - [Technical Architecture](./docs/technical-architecture.md)
 - [Meta Setup Notes](./docs/meta-setup.md)
-- [MVP TODOs](./docs/mvp-todo.md)
+- [Contributing](./CONTRIBUTING.md)
+- [Security Policy](./SECURITY.md)
+- [Trademark Policy](./TRADEMARKS.md)
 
 ## Local Development
 
@@ -80,22 +81,54 @@ Notes:
 
 ## Environment Variables
 
-| Variable | Where it must exist | Purpose |
-| --- | --- | --- |
-| `CONVEX_DEPLOY_KEY` | Vercel / CI | Lets the build deploy Convex code during production builds |
-| `SITE_URL` | Vercel and Convex | Public app origin used for Meta callbacks and tracked links |
-| `AUTH_GOOGLE_ID` | Convex | Google sign-in client ID |
-| `AUTH_GOOGLE_SECRET` | Convex | Google sign-in client secret |
-| `META_APP_ID` | Convex | Meta app ID |
-| `META_APP_SECRET` | Convex | Meta app secret |
-| `META_VERIFY_TOKEN` | Convex | Meta webhook verification token |
-| `NEXT_PUBLIC_CONVEX_URL` | Local `.env.local` or build-time env | Convex cloud URL used by Next.js |
-| `NEXT_PUBLIC_CONVEX_SITE_URL` | Local `.env.local` or build-time env | Convex site URL used for webhook and auth-related wiring |
+### Vercel
+
+Set these in Vercel because the Next.js app reads them during hosted builds and
+runtime route handling:
+
+| Variable | Purpose |
+| --- | --- |
+| `CONVEX_DEPLOY_KEY` | Lets the build deploy Convex code during production builds |
+| `SITE_URL` | Public app origin used for callbacks and tracked links |
+| `META_APP_ID` | Meta app ID used by the connect flow |
+| `META_APP_SECRET` | Meta app secret used by the Next.js Meta routes |
+| `META_VERIFY_TOKEN` | Meta webhook verification token presence check for the connect flow |
+
+### Convex Production
+
+Set these on the Convex deployment:
+
+| Variable | Purpose |
+| --- | --- |
+| `AUTH_GOOGLE_ID` | Google sign-in client ID |
+| `AUTH_GOOGLE_SECRET` | Google sign-in client secret |
+| `META_APP_ID` | Meta app ID |
+| `META_APP_SECRET` | Meta app secret |
+| `META_VERIFY_TOKEN` | Meta webhook verification token |
+| `SITE_URL` | Public app origin used for tracked links and callback-aware flows |
+| `JWT_PRIVATE_KEY` | Convex Auth signing key |
+| `JWKS` | Convex Auth JWKS document |
+
+### Local Development
+
+Your local `.env.local` should usually include:
+
+| Variable | Purpose |
+| --- | --- |
+| `NEXT_PUBLIC_CONVEX_URL` | Convex cloud URL used by Next.js |
+| `NEXT_PUBLIC_CONVEX_SITE_URL` | Convex site URL used by auth-related wiring |
+| `SITE_URL` | Public app origin or local origin |
+| `META_APP_ID` | Optional, only needed when testing Meta locally |
+| `META_APP_SECRET` | Optional, only needed when testing Meta locally |
+| `META_VERIFY_TOKEN` | Optional, only needed when testing Meta locally |
+| `AUTH_GOOGLE_ID` | Optional, only needed when testing auth locally |
+| `AUTH_GOOGLE_SECRET` | Optional, only needed when testing auth locally |
 
 Important:
 
 - `JWT_PRIVATE_KEY` and `JWKS` are required by Convex Auth, but you should not handcraft them. Generate them by running `npx @convex-dev/auth --prod` for production.
-- `CONVEX_SITE_URL` is available inside Convex deployments. This repo also falls back to `NEXT_PUBLIC_CONVEX_SITE_URL` in `convex/auth.config.ts`.
+- `CONVEX_SITE_URL` is provided by Convex inside deployments. You do not normally set it yourself.
+- This repo falls back to `NEXT_PUBLIC_CONVEX_SITE_URL` in [`convex/auth.config.ts`](./convex/auth.config.ts).
 
 ## Step-By-Step Hosting Guide
 
@@ -226,6 +259,14 @@ After the first deployment:
 - Forgetting to run `npx @convex-dev/auth --prod`, which leaves production auth without `JWT_PRIVATE_KEY` and `JWKS`
 - Using the wrong Google redirect URI. This repo uses the Convex Auth callback on the Convex site URL, not `/api/auth/callback/google` on Vercel
 - Expecting Meta callbacks to work against `localhost`
+
+## Open Source Licensing And Branding
+
+This repository's source code is released under the [MIT License](./LICENSE).
+
+The `Nudgra` name, logo, and branding are not included in that license. If you
+fork or reuse the code for your own product, rename it and replace the
+branding. See [TRADEMARKS.md](./TRADEMARKS.md).
 
 ## Useful Commands
 

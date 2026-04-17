@@ -84,6 +84,49 @@ export function DetailRow({ label, value }: { label: string; value: string }) {
   );
 }
 
+export function RadioCircle({ selected }: { selected: boolean }) {
+  return (
+    <div
+      className={`flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+        selected ? "border-primary" : "border-muted-foreground/40"
+      }`}
+    >
+      {selected ? <div className="size-2.5 rounded-full bg-primary" /> : null}
+    </div>
+  );
+}
+
+export function OptionCard({
+  selected,
+  onClick,
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      className={`cursor-pointer rounded-xl border bg-card px-4 py-3 transition-colors ${
+        selected
+          ? "border-primary/30 bg-primary/[0.02]"
+          : "border-border hover:bg-muted/50"
+      }`}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function ActiveBadge({ isActive }: { isActive: boolean }) {
   return (
     <span
@@ -94,6 +137,30 @@ export function ActiveBadge({ isActive }: { isActive: boolean }) {
       }`}
     >
       {isActive ? "Live" : "Paused"}
+    </span>
+  );
+}
+
+export function StatusBadge({
+  status,
+}: {
+  status: "draft" | "live" | "paused";
+}) {
+  const styles =
+    status === "live"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : status === "paused"
+        ? "border-border bg-muted text-muted-foreground"
+        : "border-amber-200 bg-amber-50 text-amber-700";
+
+  const label =
+    status === "live" ? "Live" : status === "paused" ? "Paused" : "Draft";
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${styles}`}
+    >
+      {label}
     </span>
   );
 }

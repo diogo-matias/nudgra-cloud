@@ -20,6 +20,21 @@ const DELIVERY_ISSUE_STATUSES = new Set<Doc<"deliveryAttempts">["status"]>([
 
 type DashboardLogStatus = Doc<"deliveryAttempts">["status"] | "received";
 
+function buildInstagramAccountCountMap<
+  T extends { instagramAccountId: Doc<"instagramAccounts">["_id"] },
+>(items: T[]) {
+  const counts = new Map<Doc<"instagramAccounts">["_id"], number>();
+
+  for (const item of items) {
+    counts.set(
+      item.instagramAccountId,
+      (counts.get(item.instagramAccountId) ?? 0) + 1,
+    );
+  }
+
+  return counts;
+}
+
 function withReason(summary: string, reason: string | null | undefined) {
   const trimmedReason = reason?.trim();
   if (!trimmedReason) {
@@ -122,82 +137,147 @@ export const getOverview = query({
   args: {},
   handler: async (ctx) => {
     const workspace = await requireCurrentWorkspace(ctx);
-    const [selectedAccount, accounts, rules, contacts, conversations] =
-      await Promise.all([
-        getSelectedWorkspaceInstagramAccount(ctx, workspace._id),
-        listWorkspaceInstagramAccounts(ctx, workspace._id),
-        ctx.db
-          .query("automationRules")
-          .withIndex("by_workspace_id", (q) =>
-            q.eq("workspaceId", workspace._id),
-          )
-          .take(100),
-        ctx.db
-          .query("contacts")
-          .withIndex("by_workspace_id_and_last_message_at", (q) =>
-            q.eq("workspaceId", workspace._id),
-          )
-          .order("desc")
-          .take(100),
-        ctx.db
-          .query("conversations")
-          .withIndex("by_workspace_id_and_last_message_at", (q) =>
-            q.eq("workspaceId", workspace._id),
-          )
-          .order("desc")
-          .take(100),
-      ]);
+    const [selectedAccount, accounts] = await Promise.all([
+      getSelectedWorkspaceInstagramAccount(ctx, workspace._id),
+      listWorkspaceInstagramAccounts(ctx, workspace._id),
+    ]);
 
-    const scopedRules =
-      selectedAccount === null
-        ? []
-        : rules.filter((rule) => rule.instagramAccountId === selectedAccount._id);
-    const scopedContacts =
-      selectedAccount === null
-        ? []
-        : contacts.filter(
-            (contact) => contact.instagramAccountId === selectedAccount._id,
-          );
-    const scopedConversations =
-      selectedAccount === null
-        ? []
-        : conversations.filter(
-            (conversation) =>
-              conversation.instagramAccountId === selectedAccount._id,
-          );
+    const selectedAccountId = selectedAccount?._id ?? null;
 
     const failureThreshold = Date.now() - 24 * 60 * 60 * 1000;
-    let recentDeliveries: Doc<"deliveryAttempts">[] = [];
-    let recentWebhooks: Doc<"webhookEvents">[] = [];
-    let deliveriesToday: Doc<"deliveryAttempts">[] = [];
+    const [
+      workspaceActiveRules,
+      workspaceLiveCommentAutomations,
+      workspaceLiveStoryAutomations,
+      workspaceContacts,
+      workspaceConversations,
+      scopedActiveRules,
+      scopedLiveCommentAutomations,
+      scopedLiveStoryAutomations,
+      scopedContacts,
+      scopedConversations,
+      recentDeliveries,
+      recentWebhooks,
+      deliveriesToday,
+    ] = await Promise.all([
+      ctx.db
+        .query("automationRules")
+        .withIndex("by_workspace_id_and_is_active", (q) =>
+          q.eq("workspaceId", workspace._id).eq("isActive", true),
+        )
+        .take(100),
+      ctx.db
+        .query("commentAutomations")
+        .withIndex("by_workspace_id_and_status", (q) =>
+          q.eq("workspaceId", workspace._id).eq("status", "live"),
+        )
+        .take(100),
+      ctx.db
+        .query("storyAutomations")
+        .withIndex("by_workspace_id_and_status", (q) =>
+          q.eq("workspaceId", workspace._id).eq("status", "live"),
+        )
+        .take(100),
+      ctx.db
+        .query("contacts")
+        .withIndex("by_workspace_id_and_last_message_at", (q) =>
+          q.eq("workspaceId", workspace._id),
+        )
+        .order("desc")
+        .take(100),
+      ctx.db
+        .query("conversations")
+        .withIndex("by_workspace_id_and_last_message_at", (q) =>
+          q.eq("workspaceId", workspace._id),
+        )
+        .order("desc")
+        .take(100),
+      selectedAccountId === null
+        ? Promise.resolve([])
+        : ctx.db
+            .query("automationRules")
+            .withIndex("by_instagram_account_id_and_is_active", (q) =>
+              q.eq("instagramAccountId", selectedAccountId).eq("isActive", true),
+            )
+            .take(100),
+      selectedAccountId === null
+        ? Promise.resolve([])
+        : ctx.db
+            .query("commentAutomations")
+            .withIndex("by_instagram_account_id_and_status", (q) =>
+              q.eq("instagramAccountId", selectedAccountId).eq("status", "live"),
+            )
+            .take(100),
+      selectedAccountId === null
+        ? Promise.resolve([])
+        : ctx.db
+            .query("storyAutomations")
+            .withIndex("by_instagram_account_id_and_status", (q) =>
+              q.eq("instagramAccountId", selectedAccountId).eq("status", "live"),
+            )
+            .take(100),
+      selectedAccountId === null
+        ? Promise.resolve([])
+        : ctx.db
+            .query("contacts")
+            .withIndex("by_instagram_account_id_and_last_message_at", (q) =>
+              q.eq("instagramAccountId", selectedAccountId),
+            )
+            .order("desc")
+            .take(100),
+      selectedAccountId === null
+        ? Promise.resolve([])
+        : ctx.db
+            .query("conversations")
+            .withIndex("by_instagram_account_id_and_last_message_at", (q) =>
+              q.eq("instagramAccountId", selectedAccountId),
+            )
+            .order("desc")
+            .take(100),
+      selectedAccountId === null
+        ? Promise.resolve([])
+        : ctx.db
+            .query("deliveryAttempts")
+            .withIndex("by_instagram_account_id_and_event_time", (q) =>
+              q.eq("instagramAccountId", selectedAccountId),
+            )
+            .order("desc")
+            .take(12),
+      selectedAccountId === null
+        ? Promise.resolve([])
+        : ctx.db
+            .query("webhookEvents")
+            .withIndex("by_instagram_account_id_and_received_at", (q) =>
+              q.eq("instagramAccountId", selectedAccountId),
+            )
+            .order("desc")
+            .take(6),
+      selectedAccountId === null
+        ? Promise.resolve([])
+        : ctx.db
+            .query("deliveryAttempts")
+            .withIndex("by_instagram_account_id_and_event_time", (q) =>
+              q
+                .eq("instagramAccountId", selectedAccountId)
+                .gte("eventTime", failureThreshold),
+            )
+            .order("desc")
+            .take(100),
+    ]);
 
-    if (selectedAccount !== null) {
-      [recentDeliveries, recentWebhooks, deliveriesToday] = await Promise.all([
-        ctx.db
-          .query("deliveryAttempts")
-          .withIndex("by_instagram_account_id_and_event_time", (q) =>
-            q.eq("instagramAccountId", selectedAccount._id),
-          )
-          .order("desc")
-          .take(12),
-        ctx.db
-          .query("webhookEvents")
-          .withIndex("by_instagram_account_id_and_received_at", (q) =>
-            q.eq("instagramAccountId", selectedAccount._id),
-          )
-          .order("desc")
-          .take(6),
-        ctx.db
-          .query("deliveryAttempts")
-          .withIndex("by_instagram_account_id_and_event_time", (q) =>
-            q
-              .eq("instagramAccountId", selectedAccount._id)
-              .gte("eventTime", failureThreshold),
-          )
-          .order("desc")
-          .take(100),
-      ]);
-    }
+    const activeRulesByAccount = buildInstagramAccountCountMap(
+      workspaceActiveRules,
+    );
+    const liveCommentAutomationsByAccount = buildInstagramAccountCountMap(
+      workspaceLiveCommentAutomations,
+    );
+    const liveStoryAutomationsByAccount = buildInstagramAccountCountMap(
+      workspaceLiveStoryAutomations,
+    );
+    const contactsByAccount = buildInstagramAccountCountMap(workspaceContacts);
+    const conversationsByAccount = buildInstagramAccountCountMap(
+      workspaceConversations,
+    );
 
     const failuresToday = deliveriesToday.filter((delivery) =>
       DELIVERY_ISSUE_STATUSES.has(delivery.status),
@@ -209,8 +289,12 @@ export const getOverview = query({
       label: string;
       kind: string;
     }> = [];
-    for (const delivery of recentDeliveries) {
-      const contact = await ctx.db.get(delivery.contactId);
+    const deliveryContacts = await Promise.all(
+      recentDeliveries.map((delivery) => ctx.db.get(delivery.contactId)),
+    );
+
+    for (const [index, delivery] of recentDeliveries.entries()) {
+      const contact = deliveryContacts[index];
       recentActivity.push({
         id: `delivery:${delivery._id}`,
         time: delivery.eventTime,
@@ -256,19 +340,18 @@ export const getOverview = query({
         reconnectRequired: account.reconnectRequired ?? false,
         lastWebhookAt: account.lastWebhookAt,
         lastError: account.lastError,
-        activeRules: rules.filter(
-          (rule) =>
-            rule.instagramAccountId === account._id && rule.isActive,
-        ).length,
-        contacts: contacts.filter(
-          (contact) => contact.instagramAccountId === account._id,
-        ).length,
-        conversations: conversations.filter(
-          (conversation) => conversation.instagramAccountId === account._id,
-        ).length,
+        activeAutomations:
+          (activeRulesByAccount.get(account._id) ?? 0) +
+          (liveCommentAutomationsByAccount.get(account._id) ?? 0) +
+          (liveStoryAutomationsByAccount.get(account._id) ?? 0),
+        contacts: contactsByAccount.get(account._id) ?? 0,
+        conversations: conversationsByAccount.get(account._id) ?? 0,
       })),
       stats: {
-        activeRules: scopedRules.filter((rule) => rule.isActive).length,
+        activeAutomations:
+          scopedActiveRules.length +
+          scopedLiveCommentAutomations.length +
+          scopedLiveStoryAutomations.length,
         contacts: scopedContacts.length,
         conversations: scopedConversations.length,
         failuresToday,

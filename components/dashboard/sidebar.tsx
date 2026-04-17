@@ -26,6 +26,7 @@ import {
   AccountAvatar,
   getAccountPrimaryLabel,
 } from "@/components/dashboard/account-avatar";
+import { NudgraLogo } from "@/components/logo";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard, exact: true },
@@ -108,9 +109,9 @@ export function DashboardSidebar({
           <div className="flex items-center justify-between">
             <Link
               href="/"
-              className="text-base font-semibold tracking-tight text-foreground transition-colors hover:text-foreground/80"
+              className="transition-opacity hover:opacity-80"
             >
-              nudgra
+              <NudgraLogo />
             </Link>
             <button
               type="button"

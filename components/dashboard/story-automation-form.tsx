@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import type { ReactNode } from "react";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -9,6 +10,8 @@ import {
 import { StoryAutomationPreview } from "@/components/dashboard/story-automation-preview";
 import {
   InlineWarning,
+  OptionCard,
+  RadioCircle,
   ToggleCard,
   ValidationIssuesNotice,
 } from "@/components/dashboard/automation-shared-ui";
@@ -182,10 +185,13 @@ export function StoryAutomationForm(props: StoryAutomationFormProps) {
                     <div className="flex items-center gap-3 rounded-2xl border border-border bg-muted/30 p-3">
                       <div className="relative h-24 w-[68px] overflow-hidden rounded-xl bg-muted">
                         {selectedStoryPreviewUrl ? (
-                          <img
+                          <Image
                             src={selectedStoryPreviewUrl}
                             alt="Selected story"
-                            className="h-full w-full object-cover"
+                            fill
+                            unoptimized
+                            sizes="68px"
+                            className="object-cover"
                           />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center">
@@ -535,49 +541,6 @@ export function StoryAutomationForm(props: StoryAutomationFormProps) {
           }}
         />
       </div>
-    </div>
-  );
-}
-
-function RadioCircle({ selected }: { selected: boolean }) {
-  return (
-    <div
-      className={`size-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-        selected ? "border-primary" : "border-muted-foreground/40"
-      }`}
-    >
-      {selected && <div className="size-2.5 rounded-full bg-primary" />}
-    </div>
-  );
-}
-
-function OptionCard({
-  selected,
-  onClick,
-  children,
-}: {
-  selected: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <div
-      role="button"
-      tabIndex={0}
-      onClick={onClick}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onClick();
-        }
-      }}
-      className={`rounded-xl border bg-card px-4 py-3 cursor-pointer transition-colors ${
-        selected
-          ? "border-primary/30 bg-primary/[0.02]"
-          : "border-border hover:bg-muted/50"
-      }`}
-    >
-      {children}
     </div>
   );
 }

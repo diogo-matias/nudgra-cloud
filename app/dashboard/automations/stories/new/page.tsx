@@ -32,11 +32,10 @@ export default function NewStoryAutomationPage() {
     api.automations.storyAutomations.getStoryAutomationCreationOptions,
     selectedAccount ? { accountId: selectedAccount.id } : "skip",
   );
-  const liveStories =
-    useQuery(
-      api.meta.storyQueries.listCachedStories,
-      selectedAccount ? { accountId: selectedAccount.id } : "skip",
-    ) ?? [];
+  const liveStoriesQuery = useQuery(
+    api.meta.storyQueries.listCachedStories,
+    selectedAccount ? { accountId: selectedAccount.id } : "skip",
+  );
   const createStoryAutomation = useMutation(
     api.automations.storyAutomations.createStoryAutomation,
   );
@@ -78,6 +77,7 @@ Right after you follow me, I'll send you the link so you can dive straight in! ð
       return null;
     }
 
+    const liveStories = liveStoriesQuery ?? [];
     const story =
       liveStories.find((item) => item.storyId === selectedStoryId) ?? null;
     if (story === null) {
@@ -92,7 +92,7 @@ Right after you follow me, I'll send you the link so you can dive straight in! ð
       permalink: story.permalink,
       timestamp: story.timestamp,
     };
-  }, [liveStories, selectedStoryId]);
+  }, [liveStoriesQuery, selectedStoryId]);
 
   const normalizedTriggerTokens = getNormalizedStoryAutomationTokens(
     triggerTokens,

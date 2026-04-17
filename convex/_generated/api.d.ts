@@ -19,6 +19,7 @@ import type * as automations_ruleShared from "../automations/ruleShared.js";
 import type * as automations_ruleTracking from "../automations/ruleTracking.js";
 import type * as automations_rules from "../automations/rules.js";
 import type * as automations_sequences from "../automations/sequences.js";
+import type * as automations_sessionShared from "../automations/sessionShared.js";
 import type * as automations_shared from "../automations/shared.js";
 import type * as automations_storyAutomations from "../automations/storyAutomations.js";
 import type * as automations_storyFlow from "../automations/storyFlow.js";
@@ -68,6 +69,7 @@ declare const fullApi: ApiFromModules<{
   "automations/ruleTracking": typeof automations_ruleTracking;
   "automations/rules": typeof automations_rules;
   "automations/sequences": typeof automations_sequences;
+  "automations/sessionShared": typeof automations_sessionShared;
   "automations/shared": typeof automations_shared;
   "automations/storyAutomations": typeof automations_storyAutomations;
   "automations/storyFlow": typeof automations_storyFlow;

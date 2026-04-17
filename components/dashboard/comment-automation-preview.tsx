@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import type { LinkButtonConfig } from "@/components/dashboard/link-buttons-editor";
@@ -65,11 +66,16 @@ function AccountAvatar({
 
   if (profilePictureUrl) {
     return (
-      <img
-        src={profilePictureUrl}
-        alt="Profile"
-        className={`${sizeClasses[size]} rounded-full object-cover shrink-0`}
-      />
+      <div className={`relative shrink-0 overflow-hidden rounded-full ${sizeClasses[size]}`}>
+        <Image
+          src={profilePictureUrl}
+          alt="Profile"
+          fill
+          unoptimized
+          sizes={size === "sm" ? "20px" : size === "md" ? "28px" : "32px"}
+          className="object-cover"
+        />
+      </div>
     );
   }
 
@@ -228,10 +234,13 @@ function PostPreview({
 
       <div className="relative flex h-[200px] w-full items-center justify-center overflow-hidden bg-[#262626]">
         {thumbnail ? (
-          <img
+          <Image
             src={thumbnail}
             alt="Post"
-            className="h-full w-full object-cover"
+            fill
+            unoptimized
+            sizes="300px"
+            className="object-cover"
           />
         ) : (
           <ImageIcon className="size-12 text-white/20" />
