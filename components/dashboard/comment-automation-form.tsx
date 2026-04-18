@@ -393,7 +393,7 @@ export function CommentAutomationForm(props: CommentAutomationFormProps) {
               {props.values.commentReplyEnabled ? (
                 <div className="mt-3 flex flex-col gap-2">
                   {props.values.commentReplyTexts.map((text, index) => (
-                    <div key={`${text}-${index}`} className="flex gap-2">
+                    <div key={`comment-reply-${index}`} className="flex gap-2">
                       <input
                         type="text"
                         value={text}
