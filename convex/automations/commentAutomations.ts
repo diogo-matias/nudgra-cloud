@@ -1,4 +1,4 @@
-import { mutation, query } from "../_generated/server";
+import { mutation, query, MutationCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { Doc } from "../_generated/dataModel";
 import {
@@ -199,6 +199,38 @@ function ensureSupportedConfiguration(args: {
   if (issues.length > 0) {
     throw new Error(issues[0] ?? "Unsupported comment automation configuration.");
   }
+}
+
+function isTerminalCommentSession(
+  step: Doc<"commentAutomationSessions">["currentStep"],
+) {
+  return step === "completed" || step === "guardrail_tripped";
+}
+
+async function closeActiveCommentSessions(
+  ctx: MutationCtx,
+  automationId: Doc<"commentAutomations">["_id"],
+  now: number,
+) {
+  const sessions = await ctx.db
+    .query("commentAutomationSessions")
+    .withIndex("by_comment_automation_id", (q) =>
+      q.eq("commentAutomationId", automationId),
+    )
+    .take(10_000);
+
+  await Promise.all(
+    sessions.map(async (session) => {
+      if (isTerminalCommentSession(session.currentStep)) {
+        return;
+      }
+
+      await ctx.db.patch(session._id, {
+        currentStep: "completed",
+        lastStepAt: now,
+      });
+    }),
+  );
 }
 
 const DEFAULT_LINK_BUTTON_TEXT = "Open link";
@@ -593,5 +625,30 @@ export const toggleCommentAutomation = mutation({
     });
 
     return { automationId: automation._id, status: args.status };
+  },
+});
+
+export const deleteCommentAutomation = mutation({
+  args: {
+    accountId: v.id("instagramAccounts"),
+    automationId: v.id("commentAutomations"),
+  },
+  handler: async (ctx, args) => {
+    const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
+    const automation = await ctx.db.get(args.automationId);
+    if (
+      automation === null ||
+      automation.workspaceId !== workspace._id ||
+      automation.instagramAccountId !== args.accountId
+    ) {
+      throw new Error("Automation not found.");
+    }
+
+    const now = Date.now();
+    await closeActiveCommentSessions(ctx, automation._id, now);
+    await ctx.db.delete(automation._id);
+
+    return { automationId: args.automationId };
   },
 });

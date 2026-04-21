@@ -341,6 +341,42 @@ function normalizeStoryAutomationInput(args: {
   };
 }
 
+function isTerminalStorySession(
+  step: Doc<"storyAutomationSessions">["currentStep"],
+) {
+  return (
+    step === "completed" ||
+    step === "link_sent" ||
+    step === "guardrail_tripped"
+  );
+}
+
+async function closeActiveStorySessions(
+  ctx: MutationCtx,
+  automationId: Doc<"storyAutomations">["_id"],
+  now: number,
+) {
+  const sessions = await ctx.db
+    .query("storyAutomationSessions")
+    .withIndex("by_story_automation_id", (q) =>
+      q.eq("storyAutomationId", automationId),
+    )
+    .take(10_000);
+
+  await Promise.all(
+    sessions.map(async (session) => {
+      if (isTerminalStorySession(session.currentStep)) {
+        return;
+      }
+
+      await ctx.db.patch(session._id, {
+        currentStep: "completed",
+        lastStepAt: now,
+      });
+    }),
+  );
+}
+
 async function loadStoryDecorators(ctx: QueryCtx) {
   const workspace = await requireCurrentWorkspace(ctx);
   const [tags, sequences] = await Promise.all([
@@ -774,5 +810,31 @@ export const toggleStoryAutomation = mutation({
     });
 
     return { automationId: automation._id, status: args.status };
+  },
+});
+
+export const deleteStoryAutomation = mutation({
+  args: {
+    accountId: v.id("instagramAccounts"),
+    automationId: v.id("storyAutomations"),
+  },
+  handler: async (ctx, args) => {
+    const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
+
+    const automation = await ctx.db.get(args.automationId);
+    if (
+      automation === null ||
+      automation.workspaceId !== workspace._id ||
+      automation.instagramAccountId !== args.accountId
+    ) {
+      throw new Error("Automation not found.");
+    }
+
+    const now = Date.now();
+    await closeActiveStorySessions(ctx, automation._id, now);
+    await ctx.db.delete(automation._id);
+
+    return { automationId: args.automationId };
   },
 });

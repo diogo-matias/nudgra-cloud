@@ -168,17 +168,62 @@ async function seedCommentAutomation(
   });
 }
 
+async function seedStoryAutomation(
+  t: ReturnType<typeof convexTest>,
+  fixture: Awaited<ReturnType<typeof seedWorkspace>>,
+) {
+  return await t.run(async (ctx) => {
+    return await ctx.db.insert("storyAutomations", {
+      workspaceId: fixture.workspaceId,
+      instagramAccountId: fixture.instagramAccountId,
+      createdByUserId: fixture.userId,
+      name: "Story CTA",
+      status: "live",
+      storyScope: "any",
+      selectedStoryId: null,
+      selectedStoryMediaType: null,
+      selectedStoryThumbnailUrl: null,
+      selectedStoryMediaUrl: null,
+      selectedStoryPermalink: null,
+      selectedStoryTimestamp: null,
+      replyFilter: "any_word_or_reaction",
+      triggerTokens: [],
+      triggerTokenLabels: [],
+      reactionEnabled: false,
+      followGateEnabled: false,
+      followGateText: "",
+      emailCollectionEnabled: false,
+      emailCollectionText: "",
+      linkDmText: "Open this story link",
+      linkUrl: "https://example.com/story-guide",
+      linkButtonText: "Open",
+      linkButtons: [{ label: "Open", url: "https://example.com/story-guide" }],
+      followUpEnabled: false,
+      followUpText: "",
+      tagIds: [],
+      sequenceDefinitionId: null,
+      selectedStoryExpiredAt: null,
+      selectedStoryExpiredReason: null,
+      guardrailTrippedAt: null,
+      guardrailReason: null,
+      guardrailSessionId: null,
+      guardrailConversationId: null,
+      triggerCount: 0,
+      lastTriggeredAt: null,
+      lastModifiedAt: BASE_TIME,
+    });
+  });
+}
+
 async function countMemberships(
   t: ReturnType<typeof convexTest>,
   contactId: Id<"contacts">,
 ) {
   return await t.run(async (ctx) => {
-    return await ctx.db
+    const memberships = await ctx.db
       .query("contactAutomationMemberships")
-      .withIndex("by_contact_id_and_last_matched_at", (q) =>
-        q.eq("contactId", contactId),
-      )
       .collect();
+    return memberships.filter((membership) => membership.contactId === contactId);
   });
 }
 
@@ -187,13 +232,11 @@ async function listStoredContactEmails(
   contactId: Id<"contacts">,
 ) {
   return await t.run(async (ctx) => {
-    return await ctx.db
-      .query("contactEmails")
-      .withIndex("by_contact_id_and_last_collected_at", (q) =>
-        q.eq("contactId", contactId),
-      )
-      .order("desc")
-      .take(20);
+    const emails = await ctx.db.query("contactEmails").collect();
+    return emails
+      .filter((email) => email.contactId === contactId)
+      .sort((left, right) => right.lastCollectedAt - left.lastCollectedAt)
+      .slice(0, 20);
   });
 }
 
@@ -556,6 +599,140 @@ describe("contacts and inbox read models", () => {
     expect(detail?.emails[0]?.sourceLabel).toBe("Comment CTA");
     expect(detail?.emails[1]?.email).toBe("first@example.com");
     expect(detail?.emails[1]?.sourceLabel).toBe("Filter rule");
+  });
+
+  it("keeps deleted automation history readable in contact detail", async () => {
+    const t = convexTest({ schema, modules });
+    const fixture = await seedWorkspace(t);
+    const authT = t.withIdentity({ subject: fixture.userId });
+    const { contactId, conversationId } = await seedContact(
+      t,
+      fixture,
+      "deleted-history",
+    );
+    const ruleId = await seedRule(t, fixture, "Deleted rule source");
+    const commentAutomationId = await seedCommentAutomation(t, fixture);
+    const storyAutomationId = await seedStoryAutomation(t, fixture);
+
+    await t.run(async (ctx) => {
+      await ctx.runMutation(
+        internal.contacts.upsertContactAutomationMembership,
+        {
+          workspaceId: fixture.workspaceId,
+          contactId,
+          conversationId,
+          automationKind: "rule",
+          automationRuleId: ruleId,
+          commentAutomationId: null,
+          sequenceDefinitionId: null,
+          matchedAt: BASE_TIME,
+        },
+      );
+      await ctx.runMutation(
+        internal.contacts.upsertContactAutomationMembership,
+        {
+          workspaceId: fixture.workspaceId,
+          contactId,
+          conversationId,
+          automationKind: "comment_automation",
+          automationRuleId: null,
+          commentAutomationId,
+          storyAutomationId: null,
+          sequenceDefinitionId: null,
+          matchedAt: BASE_TIME + 60_000,
+        },
+      );
+      await ctx.runMutation(
+        internal.contacts.upsertContactAutomationMembership,
+        {
+          workspaceId: fixture.workspaceId,
+          contactId,
+          conversationId,
+          automationKind: "story_automation",
+          automationRuleId: null,
+          commentAutomationId: null,
+          storyAutomationId,
+          sequenceDefinitionId: null,
+          matchedAt: BASE_TIME + 120_000,
+        },
+      );
+
+      await ctx.runMutation(internal.contacts.upsertCollectedContactEmail, {
+        workspaceId: fixture.workspaceId,
+        instagramAccountId: fixture.instagramAccountId,
+        contactId,
+        conversationId,
+        email: "rule@example.com",
+        collectedAt: BASE_TIME,
+        automationKind: "rule",
+        automationRuleId: ruleId,
+        commentAutomationId: null,
+        storyAutomationId: null,
+      });
+      await ctx.runMutation(internal.contacts.upsertCollectedContactEmail, {
+        workspaceId: fixture.workspaceId,
+        instagramAccountId: fixture.instagramAccountId,
+        contactId,
+        conversationId,
+        email: "comment@example.com",
+        collectedAt: BASE_TIME + 60_000,
+        automationKind: "comment_automation",
+        automationRuleId: null,
+        commentAutomationId,
+        storyAutomationId: null,
+      });
+      await ctx.runMutation(internal.contacts.upsertCollectedContactEmail, {
+        workspaceId: fixture.workspaceId,
+        instagramAccountId: fixture.instagramAccountId,
+        contactId,
+        conversationId,
+        email: "story@example.com",
+        collectedAt: BASE_TIME + 120_000,
+        automationKind: "story_automation",
+        automationRuleId: null,
+        commentAutomationId: null,
+        storyAutomationId,
+      });
+    });
+
+    await authT.mutation(api.automations.rules.deleteRule, {
+      accountId: fixture.instagramAccountId,
+      ruleId,
+    });
+    await authT.mutation(
+      api.automations.commentAutomations.deleteCommentAutomation,
+      {
+        accountId: fixture.instagramAccountId,
+        automationId: commentAutomationId,
+      },
+    );
+    await authT.mutation(
+      api.automations.storyAutomations.deleteStoryAutomation,
+      {
+        accountId: fixture.instagramAccountId,
+        automationId: storyAutomationId,
+      },
+    );
+
+    const detail = await authT.query(api.contacts.getContactDetail, {
+      accountId: fixture.instagramAccountId,
+      contactId,
+    });
+
+    expect(detail?.automations.map((automation) => automation.label)).toEqual(
+      expect.arrayContaining([
+        "Deleted rule",
+        "Deleted comment automation",
+        "Deleted story automation",
+      ]),
+    );
+    expect(detail?.emails.map((email) => email.sourceLabel)).toEqual(
+      expect.arrayContaining([
+        "Deleted rule",
+        "Deleted comment automation",
+        "Deleted story automation",
+      ]),
+    );
   });
 
   it("applies inbox automation precedence: active comment session, then sequence, then rule", async () => {

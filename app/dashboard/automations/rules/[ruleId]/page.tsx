@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowLeft, Tag, ToggleLeft, ToggleRight } from "lucide-react";
+import { ArrowLeft, Tag, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
+import { AutomationDeleteDialog } from "@/components/dashboard/automation-delete-dialog";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import {
@@ -27,6 +28,7 @@ import {
 
 export default function RuleDetailPage() {
   const params = useParams<{ ruleId: string }>();
+  const router = useRouter();
   const ruleId = params.ruleId as Id<"automationRules">;
   const accountContext = useQuery(api.accounts.getSelectedAccountContext);
   const selectedAccount = accountContext?.selectedAccount ?? null;
@@ -45,6 +47,7 @@ export default function RuleDetailPage() {
   );
   const updateRule = useMutation(api.automations.rules.updateRule);
   const toggleRule = useMutation(api.automations.rules.toggleRule);
+  const deleteRule = useMutation(api.automations.rules.deleteRule);
 
   const [name, setName] = useState("");
   const [triggerKeywords, setTriggerKeywords] = useState<string[]>([]);
@@ -65,6 +68,9 @@ export default function RuleDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (rule && !initialized) {
@@ -166,6 +172,39 @@ export default function RuleDetailPage() {
     setIsEditing(false);
   }
 
+  function handleDeleteDialogChange(open: boolean) {
+    if (isDeleting) {
+      return;
+    }
+
+    setShowDeleteDialog(open);
+    if (!open) {
+      setDeleteError(null);
+    }
+  }
+
+  async function handleDelete() {
+    if (!selectedAccount || isDeleting) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      await deleteRule({
+        accountId: selectedAccount.id,
+        ruleId,
+      });
+      router.push("/dashboard/automations");
+    } catch (error) {
+      setDeleteError(
+        error instanceof Error ? error.message : "Failed to delete automation.",
+      );
+      setIsDeleting(false);
+    }
+  }
+
   if (selectedAccount === null) {
     return (
       <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -208,138 +247,172 @@ export default function RuleDetailPage() {
 
   if (isEditing && isKeywordRule) {
     return (
-      <main className="flex min-h-0 flex-1 flex-col">
-        <div className="shrink-0 border-b border-border bg-background px-8 py-4">
-          <div className="flex max-w-7xl items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <button
-                type="button"
-                onClick={handleCancelEdit}
-                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-              >
-                <ArrowLeft className="size-3.5" />
-                Cancel editing
-              </button>
-              <span className="text-border">/</span>
-              <span className="text-sm font-medium text-foreground">
-                Edit DM automation
-              </span>
-            </div>
+      <>
+        <main className="flex min-h-0 flex-1 flex-col">
+          <div className="shrink-0 border-b border-border bg-background px-8 py-4">
+            <div className="flex max-w-7xl items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <ArrowLeft className="size-3.5" />
+                  Cancel editing
+                </button>
+                <span className="text-border">/</span>
+                <span className="text-sm font-medium text-foreground">
+                  Edit DM automation
+                </span>
+              </div>
 
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleCancelEdit}
-                className="inline-flex items-center rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-              >
-                Discard
-              </button>
-              <button
-                type="button"
-                disabled={!isValid || isSubmitting}
-                onClick={() => void handleSave()}
-                className="inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {isSubmitting ? "Saving..." : "Save changes"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setShowDeleteDialog(true);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg border border-destructive/20 px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/5"
+                >
+                  <Trash2 className="size-4" />
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="inline-flex items-center rounded-lg border border-border px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                >
+                  Discard
+                </button>
+                <button
+                  type="button"
+                  disabled={!isValid || isSubmitting}
+                  onClick={() => void handleSave()}
+                  className="inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {isSubmitting ? "Saving..." : "Save changes"}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
 
-        <RuleAutomationForm
-          name={name}
-          onNameChange={setName}
-          triggerKeywords={triggerKeywords}
-          keywordInput={keywordInput}
-          onKeywordInputChange={setKeywordInput}
-          onTriggerKeywordsChange={setTriggerKeywords}
-          linkDmText={linkDmText}
-          onLinkDmTextChange={setLinkDmText}
-          linkButtons={linkButtons}
-          onLinkButtonsChange={setLinkButtons}
-          followGateEnabled={followGateEnabled}
-          onFollowGateEnabledChange={setFollowGateEnabled}
-          followGateText={followGateText}
-          onFollowGateTextChange={setFollowGateText}
-          emailCollectionEnabled={emailCollectionEnabled}
-          onEmailCollectionEnabledChange={setEmailCollectionEnabled}
-          emailCollectionText={emailCollectionText}
-          onEmailCollectionTextChange={setEmailCollectionText}
-          followUpEnabled={followUpEnabled}
-          onFollowUpEnabledChange={setFollowUpEnabled}
-          followUpText={followUpText}
-          onFollowUpTextChange={setFollowUpText}
-          tagOptions={options?.tags ?? []}
-          selectedTagIds={selectedTagIds}
-          onSelectedTagIdsChange={setSelectedTagIds}
-          isActive={isActive}
-          onIsActiveChange={setIsActive}
-          validationIssues={validationIssues}
-          submissionError={submissionError}
-          username={selectedAccount.username}
-          profilePictureUrl={selectedAccount.profilePictureUrl}
+          <RuleAutomationForm
+            name={name}
+            onNameChange={setName}
+            triggerKeywords={triggerKeywords}
+            keywordInput={keywordInput}
+            onKeywordInputChange={setKeywordInput}
+            onTriggerKeywordsChange={setTriggerKeywords}
+            linkDmText={linkDmText}
+            onLinkDmTextChange={setLinkDmText}
+            linkButtons={linkButtons}
+            onLinkButtonsChange={setLinkButtons}
+            followGateEnabled={followGateEnabled}
+            onFollowGateEnabledChange={setFollowGateEnabled}
+            followGateText={followGateText}
+            onFollowGateTextChange={setFollowGateText}
+            emailCollectionEnabled={emailCollectionEnabled}
+            onEmailCollectionEnabledChange={setEmailCollectionEnabled}
+            emailCollectionText={emailCollectionText}
+            onEmailCollectionTextChange={setEmailCollectionText}
+            followUpEnabled={followUpEnabled}
+            onFollowUpEnabledChange={setFollowUpEnabled}
+            followUpText={followUpText}
+            onFollowUpTextChange={setFollowUpText}
+            tagOptions={options?.tags ?? []}
+            selectedTagIds={selectedTagIds}
+            onSelectedTagIdsChange={setSelectedTagIds}
+            isActive={isActive}
+            onIsActiveChange={setIsActive}
+            validationIssues={validationIssues}
+            submissionError={submissionError}
+            username={selectedAccount.username}
+            profilePictureUrl={selectedAccount.profilePictureUrl}
+          />
+        </main>
+
+        <AutomationDeleteDialog
+          open={showDeleteDialog}
+          onOpenChange={handleDeleteDialogChange}
+          automationKind="rule"
+          automationName={rule.name}
+          isDeleting={isDeleting}
+          error={deleteError}
+          onConfirm={() => void handleDelete()}
         />
-      </main>
+      </>
     );
   }
 
   return (
-    <main className="flex-1 px-8 py-10">
-      <div className="flex max-w-7xl gap-8">
-        <div className="flex min-w-0 flex-1 flex-col gap-6">
-          <Link
-            href="/dashboard/automations"
-            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <ArrowLeft className="size-3.5" />
-            Back to automations
-          </Link>
+    <>
+      <main className="flex-1 px-8 py-10">
+        <div className="flex max-w-7xl gap-8">
+          <div className="flex min-w-0 flex-1 flex-col gap-6">
+            <Link
+              href="/dashboard/automations"
+              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ArrowLeft className="size-3.5" />
+              Back to automations
+            </Link>
 
-          <div className="flex items-start justify-between gap-4 rounded-xl border border-border bg-card p-5">
-            <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <ActiveBadge isActive={rule.isActive} />
-                <h1 className="text-xl font-semibold text-foreground">
-                  {rule.name}
-                </h1>
+            <div className="flex items-start justify-between gap-4 rounded-xl border border-border bg-card p-5">
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <ActiveBadge isActive={rule.isActive} />
+                  <h1 className="text-xl font-semibold text-foreground">
+                    {rule.name}
+                  </h1>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Triggered {rule.triggerCount} time
+                  {rule.triggerCount === 1 ? "" : "s"}. Last updated{" "}
+                  {new Date(rule.lastModifiedAt).toLocaleString()}.
+                </p>
               </div>
-              <p className="text-sm text-muted-foreground">
-                Triggered {rule.triggerCount} time
-                {rule.triggerCount === 1 ? "" : "s"}.
-                {" "}Last updated{" "}
-                {new Date(rule.lastModifiedAt).toLocaleString()}.
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              {isKeywordRule ? (
+              <div className="flex items-center gap-2">
+                {isKeywordRule ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsEditing(true)}
+                    className="inline-flex items-center rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                  >
+                    Edit
+                  </button>
+                ) : null}
                 <button
                   type="button"
-                  onClick={() => setIsEditing(true)}
-                  className="inline-flex items-center rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setShowDeleteDialog(true);
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg border border-destructive/20 px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/5"
                 >
-                  Edit
+                  <Trash2 className="size-4" />
+                  Delete
                 </button>
-              ) : null}
-              <button
-                type="button"
-                onClick={() =>
-                  void toggleRule({
-                    accountId: selectedAccount.id,
-                    ruleId: rule.id,
-                    isActive: !rule.isActive,
-                  })
-                }
-                className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
-              >
-                {rule.isActive ? (
-                  <ToggleRight className="size-5 text-primary" />
-                ) : (
-                  <ToggleLeft className="size-5" />
-                )}
-                {rule.isActive ? "Pause" : "Go live"}
-              </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void toggleRule({
+                      accountId: selectedAccount.id,
+                      ruleId: rule.id,
+                      isActive: !rule.isActive,
+                    })
+                  }
+                  className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted"
+                >
+                  {rule.isActive ? (
+                    <ToggleRight className="size-5 text-primary" />
+                  ) : (
+                    <ToggleLeft className="size-5" />
+                  )}
+                  {rule.isActive ? "Pause" : "Go live"}
+                </button>
+              </div>
             </div>
-          </div>
 
           {!isKeywordRule ? (
             <ValidationIssuesNotice
@@ -495,27 +568,38 @@ export default function RuleDetailPage() {
               </div>
             </div>
           </DetailCard>
-        </div>
+          </div>
 
-        <div className="hidden w-[380px] shrink-0 items-start justify-center border-l border-border bg-muted/30 py-8 lg:flex">
-          <RuleAutomationPreview
-            config={{
-              triggerKeywords: rule.triggerKeywordLabels,
-              followGateEnabled: rule.followGateEnabled,
-              followGateText: rule.followGateText,
-              emailCollectionEnabled: rule.emailCollectionEnabled,
-              emailCollectionText: rule.emailCollectionText,
-              linkDmText: rule.linkDmText,
-              linkButtons: rule.linkButtons,
-              followUpEnabled: rule.followUpEnabled,
-              followUpText: rule.followUpText,
-              validationIssues: rule.validationIssues,
-              username: selectedAccount.username,
-              profilePictureUrl: selectedAccount.profilePictureUrl,
-            }}
-          />
+          <div className="hidden w-[380px] shrink-0 items-start justify-center border-l border-border bg-muted/30 py-8 lg:flex">
+            <RuleAutomationPreview
+              config={{
+                triggerKeywords: rule.triggerKeywordLabels,
+                followGateEnabled: rule.followGateEnabled,
+                followGateText: rule.followGateText,
+                emailCollectionEnabled: rule.emailCollectionEnabled,
+                emailCollectionText: rule.emailCollectionText,
+                linkDmText: rule.linkDmText,
+                linkButtons: rule.linkButtons,
+                followUpEnabled: rule.followUpEnabled,
+                followUpText: rule.followUpText,
+                validationIssues: rule.validationIssues,
+                username: selectedAccount.username,
+                profilePictureUrl: selectedAccount.profilePictureUrl,
+              }}
+            />
+          </div>
         </div>
-      </div>
-    </main>
+      </main>
+
+      <AutomationDeleteDialog
+        open={showDeleteDialog}
+        onOpenChange={handleDeleteDialogChange}
+        automationKind="rule"
+        automationName={rule.name}
+        isDeleting={isDeleting}
+        error={deleteError}
+        onConfirm={() => void handleDelete()}
+      />
+    </>
   );
 }

@@ -109,6 +109,40 @@ function serializeRule(
   };
 }
 
+function isTerminalRuleSession(
+  step: Doc<"automationRuleSessions">["currentStep"],
+) {
+  return (
+    step === "completed" ||
+    step === "link_sent" ||
+    step === "guardrail_tripped"
+  );
+}
+
+async function closeActiveRuleSessions(
+  ctx: MutationCtx,
+  ruleId: Doc<"automationRules">["_id"],
+  now: number,
+) {
+  const sessions = await ctx.db
+    .query("automationRuleSessions")
+    .withIndex("by_automation_rule_id", (q) => q.eq("automationRuleId", ruleId))
+    .take(10_000);
+
+  await Promise.all(
+    sessions.map(async (session) => {
+      if (isTerminalRuleSession(session.currentStep)) {
+        return;
+      }
+
+      await ctx.db.patch(session._id, {
+        currentStep: "completed",
+        lastStepAt: now,
+      });
+    }),
+  );
+}
+
 async function validateRuleRelations(
   ctx: MutationCtx,
   args: {
@@ -445,5 +479,30 @@ export const toggleRule = mutation({
       lastModifiedAt: Date.now(),
     });
     return { ruleId: rule._id, isActive: args.isActive };
+  },
+});
+
+export const deleteRule = mutation({
+  args: {
+    accountId: v.id("instagramAccounts"),
+    ruleId: v.id("automationRules"),
+  },
+  handler: async (ctx, args) => {
+    const workspace = await requireCurrentWorkspace(ctx);
+    await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
+    const rule = await ctx.db.get(args.ruleId);
+    if (
+      rule === null ||
+      rule.workspaceId !== workspace._id ||
+      rule.instagramAccountId !== args.accountId
+    ) {
+      throw new Error("Rule not found.");
+    }
+
+    const now = Date.now();
+    await closeActiveRuleSessions(ctx, rule._id, now);
+    await ctx.db.delete(rule._id);
+
+    return { ruleId: args.ruleId };
   },
 });

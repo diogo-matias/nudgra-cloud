@@ -203,13 +203,11 @@ async function listStoredContactEmails(
   contactId: Id<"contacts">,
 ) {
   return await t.run(async (ctx) => {
-    return await ctx.db
-      .query("contactEmails")
-      .withIndex("by_contact_id_and_last_collected_at", (q) =>
-        q.eq("contactId", contactId),
-      )
-      .order("desc")
-      .take(10);
+    const emails = await ctx.db.query("contactEmails").collect();
+    return emails
+      .filter((email) => email.contactId === contactId)
+      .sort((left, right) => right.lastCollectedAt - left.lastCollectedAt)
+      .slice(0, 10);
   });
 }
 
@@ -502,5 +500,75 @@ describe("keyword DM automation rules", () => {
         attempt.messageText === "Checking in",
     );
     expect(followUpAttempts).toHaveLength(1);
+  });
+
+  it("deletes rules, force-closes active sessions, and keeps tracked links working", async () => {
+    const t = convexTest({ schema, modules });
+    const fixture = await seedWorkspace(t);
+    const authT = t.withIdentity({ subject: fixture.userId });
+
+    const activeRuleId = await insertRule(t, fixture, {
+      followGateEnabled: true,
+      followGateText: "Follow first",
+    });
+    const trackedRuleId = await insertRule(t, fixture, {});
+
+    const activeSession = await startSession(
+      t,
+      activeRuleId,
+      fixture,
+      "delete-active",
+    );
+    const trackedSession = await startSession(
+      t,
+      trackedRuleId,
+      fixture,
+      "delete-tracked",
+    );
+
+    const trackedLink = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("automationRuleTrackedLinks")
+        .withIndex("by_session_id", (q) => q.eq("sessionId", trackedSession.sessionId))
+        .unique();
+    });
+
+    const activeSessionBeforeDelete = await t.run((ctx) =>
+      ctx.db.get(activeSession.sessionId),
+    );
+    expect(activeSessionBeforeDelete?.currentStep).toBe("awaiting_follow");
+    expect(trackedLink?.token).toBeTruthy();
+
+    await authT.mutation(api.automations.rules.deleteRule, {
+      accountId: fixture.instagramAccountId,
+      ruleId: activeRuleId,
+    });
+    await authT.mutation(api.automations.rules.deleteRule, {
+      accountId: fixture.instagramAccountId,
+      ruleId: trackedRuleId,
+    });
+
+    const activeSessionAfterDelete = await t.run((ctx) =>
+      ctx.db.get(activeSession.sessionId),
+    );
+    expect(activeSessionAfterDelete?.currentStep).toBe("completed");
+    expect(activeSessionAfterDelete?.lastStepAt).toBe(BASE_TIME);
+
+    const deletedRule = await authT.query(api.automations.rules.getRuleById, {
+      accountId: fixture.instagramAccountId,
+      ruleId: activeRuleId,
+    });
+    expect(deletedRule).toBeNull();
+
+    const listedRules = await authT.query(api.automations.rules.listCurrentRules, {
+      accountId: fixture.instagramAccountId,
+    });
+    expect(listedRules.some((rule) => rule.id === activeRuleId)).toBe(false);
+    expect(listedRules.some((rule) => rule.id === trackedRuleId)).toBe(false);
+
+    const clickResult = await t.mutation(api.automations.ruleTracking.consumeTrackedLink, {
+      token: trackedLink!.token,
+    });
+    expect(clickResult.destinationUrl).toBe("https://example.com/guide");
   });
 });
