@@ -52,6 +52,7 @@ async function seedContact(
   t: ReturnType<typeof convexTest>,
   fixture: Awaited<ReturnType<typeof seedWorkspace>>,
   suffix: string,
+  activityAt = BASE_TIME,
 ) {
   return await t.run(async (ctx) => {
     const contactId = await ctx.db.insert("contacts", {
@@ -62,9 +63,9 @@ async function seedContact(
       displayName: `User ${suffix}`,
       profilePictureUrl: null,
       profilePictureFetchedAt: null,
-      firstInboundAt: BASE_TIME,
-      lastInboundAt: BASE_TIME,
-      lastMessageAt: BASE_TIME,
+      firstInboundAt: activityAt,
+      lastInboundAt: activityAt,
+      lastMessageAt: activityAt,
     });
     const conversationId = await ctx.db.insert("conversations", {
       workspaceId: fixture.workspaceId,
@@ -72,12 +73,12 @@ async function seedContact(
       contactId,
       conversationKey: `ig_account_1:contact_${suffix}`,
       status: "active",
-      startedAt: BASE_TIME,
-      lastMessageAt: BASE_TIME,
-      lastInboundAt: BASE_TIME,
+      startedAt: activityAt,
+      lastMessageAt: activityAt,
+      lastInboundAt: activityAt,
       lastOutboundAt: null,
       lastMessagePreview: "Hello there",
-      messagingWindowClosesAt: BASE_TIME + 24 * 60 * 60 * 1000,
+      messagingWindowClosesAt: activityAt + 24 * 60 * 60 * 1000,
       lastAutomationRuleId: null,
     });
 
@@ -223,7 +224,9 @@ async function countMemberships(
     const memberships = await ctx.db
       .query("contactAutomationMemberships")
       .collect();
-    return memberships.filter((membership) => membership.contactId === contactId);
+    return memberships.filter(
+      (membership) => membership.contactId === contactId,
+    );
   });
 }
 
@@ -450,7 +453,11 @@ describe("contacts and inbox read models", () => {
   it("dedupes repeated collected emails and keeps multiple distinct addresses per contact", async () => {
     const t = convexTest({ schema, modules });
     const fixture = await seedWorkspace(t);
-    const { contactId, conversationId } = await seedContact(t, fixture, "emails");
+    const { contactId, conversationId } = await seedContact(
+      t,
+      fixture,
+      "emails",
+    );
     const ruleId = await seedRule(t, fixture, "Email rule");
     const commentAutomationId = await seedCommentAutomation(t, fixture);
 
@@ -570,13 +577,16 @@ describe("contacts and inbox read models", () => {
       });
     });
 
-    const filteredContacts = await authT.query(api.contacts.listContacts, {
+    const filteredResult = await authT.query(api.contacts.listContacts, {
       accountId: fixture.instagramAccountId,
       automationFilter: {
         kind: "rule",
         automationRuleId: ruleId,
       },
+      limit: 50,
+      cursor: null,
     });
+    const filteredContacts = filteredResult.contacts;
     expect(filteredContacts).toHaveLength(1);
     expect(filteredContacts[0]?.id).toBe(first.contactId);
     expect(filteredContacts[0]?.latestEmail).toBe("latest@example.com");
@@ -599,6 +609,123 @@ describe("contacts and inbox read models", () => {
     expect(detail?.emails[0]?.sourceLabel).toBe("Comment CTA");
     expect(detail?.emails[1]?.email).toBe("first@example.com");
     expect(detail?.emails[1]?.sourceLabel).toBe("Filter rule");
+  });
+
+  it("paginates contacts beyond the first 100 without duplicates", async () => {
+    const t = convexTest({ schema, modules });
+    const fixture = await seedWorkspace(t);
+    const authT = t.withIdentity({ subject: fixture.userId });
+
+    for (let index = 0; index < 120; index += 1) {
+      await seedContact(
+        t,
+        fixture,
+        `bulk-${index.toString().padStart(3, "0")}`,
+        BASE_TIME + index,
+      );
+    }
+
+    const firstPage = await authT.query(api.contacts.listContacts, {
+      accountId: fixture.instagramAccountId,
+      automationFilter: null,
+      limit: 50,
+      cursor: null,
+    });
+    expect(firstPage.contacts).toHaveLength(50);
+    expect(firstPage.hasMore).toBe(true);
+    expect(firstPage.nextCursor).not.toBeNull();
+    expect(firstPage.contacts[0]?.username).toBe("user_bulk-119");
+    expect(firstPage.contacts[49]?.username).toBe("user_bulk-070");
+
+    const secondPage = await authT.query(api.contacts.listContacts, {
+      accountId: fixture.instagramAccountId,
+      automationFilter: null,
+      limit: 50,
+      cursor: firstPage.nextCursor,
+    });
+    expect(secondPage.contacts).toHaveLength(50);
+    expect(secondPage.hasMore).toBe(true);
+    expect(secondPage.nextCursor).not.toBe(firstPage.nextCursor);
+
+    const seenContactIds = new Set(
+      [...firstPage.contacts, ...secondPage.contacts].map(
+        (contact) => contact.id,
+      ),
+    );
+    expect(seenContactIds.size).toBe(100);
+
+    const finalPage = await authT.query(api.contacts.listContacts, {
+      accountId: fixture.instagramAccountId,
+      automationFilter: null,
+      limit: 50,
+      cursor: secondPage.nextCursor,
+    });
+    expect(finalPage.contacts).toHaveLength(20);
+    expect(finalPage.hasMore).toBe(false);
+    expect(finalPage.nextCursor).toBeNull();
+  });
+
+  it("paginates automation-filtered contacts by latest contact activity", async () => {
+    const t = convexTest({ schema, modules });
+    const fixture = await seedWorkspace(t);
+    const authT = t.withIdentity({ subject: fixture.userId });
+    const ruleId = await seedRule(t, fixture, "Activity sorted rule");
+    const oldest = await seedContact(t, fixture, "oldest", BASE_TIME + 1_000);
+    const newest = await seedContact(t, fixture, "newest", BASE_TIME + 3_000);
+    const middle = await seedContact(t, fixture, "middle", BASE_TIME + 2_000);
+
+    await t.run(async (ctx) => {
+      for (const [contact, matchedAt] of [
+        [oldest, BASE_TIME + 30_000],
+        [newest, BASE_TIME + 10_000],
+        [middle, BASE_TIME + 20_000],
+      ] as const) {
+        await ctx.runMutation(
+          internal.contacts.upsertContactAutomationMembership,
+          {
+            workspaceId: fixture.workspaceId,
+            contactId: contact.contactId,
+            conversationId: contact.conversationId,
+            automationKind: "rule",
+            automationRuleId: ruleId,
+            commentAutomationId: null,
+            sequenceDefinitionId: null,
+            matchedAt,
+          },
+        );
+      }
+    });
+
+    const firstPage = await authT.query(api.contacts.listContacts, {
+      accountId: fixture.instagramAccountId,
+      automationFilter: {
+        kind: "rule",
+        automationRuleId: ruleId,
+      },
+      limit: 2,
+      cursor: null,
+    });
+    expect(firstPage.contacts.map((contact) => contact.id)).toEqual([
+      newest.contactId,
+      middle.contactId,
+    ]);
+    expect(firstPage.hasMore).toBe(true);
+    expect(firstPage.nextCursor).toBe("2");
+
+    const finalPage = await authT.query(api.contacts.listContacts, {
+      accountId: fixture.instagramAccountId,
+      automationFilter: {
+        kind: "rule",
+        automationRuleId: ruleId,
+      },
+      limit: 2,
+      cursor: firstPage.nextCursor,
+    });
+    expect(finalPage.contacts.map((contact) => contact.id)).toEqual([
+      oldest.contactId,
+    ]);
+    expect(finalPage.hasMore).toBe(false);
+    expect(finalPage.nextCursor).toBeNull();
   });
 
   it("keeps deleted automation history readable in contact detail", async () => {
