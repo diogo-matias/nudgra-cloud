@@ -40,13 +40,34 @@ const automationFilterValidator = v.union(
   }),
 );
 
+type AutomationFilter =
+  | {
+      kind: "rule";
+      automationRuleId: Id<"automationRules">;
+    }
+  | {
+      kind: "comment_automation";
+      commentAutomationId: Id<"commentAutomations">;
+    }
+  | {
+      kind: "story_automation";
+      storyAutomationId: Id<"storyAutomations">;
+    }
+  | {
+      kind: "sequence";
+      sequenceDefinitionId: Id<"sequenceDefinitions">;
+    };
+
 const contactEmailAutomationKindValidator = v.union(
   v.literal("rule"),
   v.literal("comment_automation"),
   v.literal("story_automation"),
 );
 const nullableAutomationRuleId = v.union(v.id("automationRules"), v.null());
-const nullableCommentAutomationId = v.union(v.id("commentAutomations"), v.null());
+const nullableCommentAutomationId = v.union(
+  v.id("commentAutomations"),
+  v.null(),
+);
 const nullableStoryAutomationId = v.union(v.id("storyAutomations"), v.null());
 const nullableSequenceDefinitionId = v.union(
   v.id("sequenceDefinitions"),
@@ -56,6 +77,8 @@ const nullableConversationId = v.union(v.id("conversations"), v.null());
 const nullableString = v.union(v.string(), v.null());
 const CONTACT_PROFILE_REFRESH_INTERVAL_MS = 2 * 24 * 60 * 60 * 1000;
 const CONTACT_EMAIL_LIMIT = 100;
+const DEFAULT_CONTACT_PAGE_SIZE = 50;
+const MAX_CONTACT_PAGE_SIZE = 100;
 
 type WorkspaceAutomationMaps = Awaited<
   ReturnType<typeof loadWorkspaceAutomationMaps>
@@ -161,6 +184,105 @@ async function loadContactListItem(
   };
 }
 
+function normalizeContactPageSize(limit: number) {
+  if (!Number.isFinite(limit)) {
+    return DEFAULT_CONTACT_PAGE_SIZE;
+  }
+
+  return Math.min(Math.max(Math.floor(limit), 1), MAX_CONTACT_PAGE_SIZE);
+}
+
+function parseFilteredContactsCursor(cursor: string | null) {
+  if (cursor === null) {
+    return 0;
+  }
+
+  const parsed = Number.parseInt(cursor, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+
+  return parsed;
+}
+
+async function loadAutomationFilteredContacts(
+  ctx: QueryCtx,
+  workspaceId: Id<"workspaces">,
+  accountId: Id<"instagramAccounts">,
+  automationFilter: AutomationFilter,
+  limit: number,
+  cursor: string | null,
+) {
+  const memberships =
+    automationFilter.kind === "rule"
+      ? await ctx.db
+          .query("contactAutomationMemberships")
+          .withIndex("by_workspace_id_and_rule_id", (q) =>
+            q
+              .eq("workspaceId", workspaceId)
+              .eq("automationRuleId", automationFilter.automationRuleId),
+          )
+          .collect()
+      : automationFilter.kind === "comment_automation"
+        ? await ctx.db
+            .query("contactAutomationMemberships")
+            .withIndex("by_workspace_id_and_comment_automation_id", (q) =>
+              q
+                .eq("workspaceId", workspaceId)
+                .eq(
+                  "commentAutomationId",
+                  automationFilter.commentAutomationId,
+                ),
+            )
+            .collect()
+        : automationFilter.kind === "story_automation"
+          ? await ctx.db
+              .query("contactAutomationMemberships")
+              .withIndex("by_workspace_id_and_story_automation_id", (q) =>
+                q
+                  .eq("workspaceId", workspaceId)
+                  .eq("storyAutomationId", automationFilter.storyAutomationId),
+              )
+              .collect()
+          : await ctx.db
+              .query("contactAutomationMemberships")
+              .withIndex("by_workspace_id_and_sequence_definition_id", (q) =>
+                q
+                  .eq("workspaceId", workspaceId)
+                  .eq(
+                    "sequenceDefinitionId",
+                    automationFilter.sequenceDefinitionId,
+                  ),
+              )
+              .collect();
+
+  const uniqueContactIds = [
+    ...new Set(memberships.map((membership) => membership.contactId)),
+  ];
+  const contacts = (
+    await Promise.all(
+      uniqueContactIds.map((contactId) => ctx.db.get(contactId)),
+    )
+  )
+    .filter(
+      (contact): contact is NonNullable<typeof contact> =>
+        contact !== null &&
+        contact.workspaceId === workspaceId &&
+        contact.instagramAccountId === accountId,
+    )
+    .sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+
+  const start = parseFilteredContactsCursor(cursor);
+  const page = contacts.slice(start, start + limit);
+  const nextOffset = start + page.length;
+
+  return {
+    page,
+    isDone: nextOffset >= contacts.length,
+    continueCursor: nextOffset >= contacts.length ? null : String(nextOffset),
+  };
+}
+
 export const listAutomationFilters = query({
   args: { accountId: v.id("instagramAccounts") },
   handler: async (ctx, args) => {
@@ -168,28 +290,30 @@ export const listAutomationFilters = query({
     await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
     const [rules, commentAutomations, storyAutomations, sequences] =
       await Promise.all([
-      ctx.db
-        .query("automationRules")
-        .withIndex("by_instagram_account_id", (q) =>
-          q.eq("instagramAccountId", args.accountId),
-        )
-        .take(100),
-      ctx.db
-        .query("commentAutomations")
-        .withIndex("by_instagram_account_id", (q) =>
-          q.eq("instagramAccountId", args.accountId),
-        )
-        .take(100),
-      ctx.db
-        .query("storyAutomations")
-        .withIndex("by_instagram_account_id", (q) =>
-          q.eq("instagramAccountId", args.accountId),
-        )
-        .take(100),
-      ctx.db
-        .query("sequenceDefinitions")
-        .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspace._id))
-        .take(25),
+        ctx.db
+          .query("automationRules")
+          .withIndex("by_instagram_account_id", (q) =>
+            q.eq("instagramAccountId", args.accountId),
+          )
+          .take(100),
+        ctx.db
+          .query("commentAutomations")
+          .withIndex("by_instagram_account_id", (q) =>
+            q.eq("instagramAccountId", args.accountId),
+          )
+          .take(100),
+        ctx.db
+          .query("storyAutomations")
+          .withIndex("by_instagram_account_id", (q) =>
+            q.eq("instagramAccountId", args.accountId),
+          )
+          .take(100),
+        ctx.db
+          .query("sequenceDefinitions")
+          .withIndex("by_workspace_id", (q) =>
+            q.eq("workspaceId", workspace._id),
+          )
+          .take(25),
       ]);
 
     const serializedRules = [...rules]
@@ -238,74 +362,43 @@ export const listContacts = query({
   args: {
     accountId: v.id("instagramAccounts"),
     automationFilter: automationFilterValidator,
+    limit: v.number(),
+    cursor: v.union(v.string(), v.null()),
   },
   handler: async (ctx, args) => {
     const workspace = await requireCurrentWorkspace(ctx);
     await requireWorkspaceInstagramAccount(ctx, workspace._id, args.accountId);
+    const limit = normalizeContactPageSize(args.limit);
 
-    let contacts;
-    if (args.automationFilter === null) {
-      contacts = await ctx.db
-        .query("contacts")
-        .withIndex("by_instagram_account_id_and_last_message_at", (q) =>
-          q.eq("instagramAccountId", args.accountId),
-        )
-        .order("desc")
-        .take(100);
-    } else {
-      const filter = args.automationFilter;
-      const memberships =
-        filter.kind === "rule"
-          ? await ctx.db
-              .query("contactAutomationMemberships")
-              .withIndex("by_workspace_id_and_rule_id", (q) =>
-                q.eq("workspaceId", workspace._id).eq("automationRuleId", filter.automationRuleId),
-              )
-              .take(200)
-          : filter.kind === "comment_automation"
-            ? await ctx.db
-                .query("contactAutomationMemberships")
-                .withIndex("by_workspace_id_and_comment_automation_id", (q) =>
-                  q
-                    .eq("workspaceId", workspace._id)
-                    .eq("commentAutomationId", filter.commentAutomationId),
-                )
-                .take(200)
-            : filter.kind === "story_automation"
-              ? await ctx.db
-                  .query("contactAutomationMemberships")
-                  .withIndex("by_workspace_id_and_story_automation_id", (q) =>
-                    q
-                      .eq("workspaceId", workspace._id)
-                      .eq("storyAutomationId", filter.storyAutomationId),
-                  )
-                  .take(200)
-            : await ctx.db
-                .query("contactAutomationMemberships")
-                .withIndex("by_workspace_id_and_sequence_definition_id", (q) =>
-                  q
-                    .eq("workspaceId", workspace._id)
-                    .eq("sequenceDefinitionId", filter.sequenceDefinitionId),
-                )
-                .take(200);
+    const page =
+      args.automationFilter === null
+        ? await ctx.db
+            .query("contacts")
+            .withIndex("by_instagram_account_id_and_last_message_at", (q) =>
+              q.eq("instagramAccountId", args.accountId),
+            )
+            .order("desc")
+            .paginate({ numItems: limit, cursor: args.cursor })
+        : await loadAutomationFilteredContacts(
+            ctx,
+            workspace._id,
+            args.accountId,
+            args.automationFilter,
+            limit,
+            args.cursor,
+          );
 
-      const uniqueContactIds = [...new Set(memberships.map((row) => row.contactId))];
-      contacts = (
-        await Promise.all(uniqueContactIds.map((contactId) => ctx.db.get(contactId)))
-      )
-        .filter(
-          (contact): contact is NonNullable<typeof contact> =>
-            contact !== null &&
-            contact.workspaceId === workspace._id &&
-            contact.instagramAccountId === args.accountId,
-        )
-        .sort((a, b) => b.lastMessageAt - a.lastMessageAt)
-        .slice(0, 100);
-    }
-
-    return await Promise.all(
-      contacts.map((contact) => loadContactListItem(ctx, workspace._id, contact)),
+    const contacts = await Promise.all(
+      page.page.map((contact) =>
+        loadContactListItem(ctx, workspace._id, contact),
+      ),
     );
+
+    return {
+      contacts,
+      nextCursor: page.isDone ? null : page.continueCursor,
+      hasMore: !page.isDone,
+    };
   },
 });
 
@@ -327,18 +420,24 @@ export const getContactDetail = query({
     }
 
     const maps = await loadWorkspaceAutomationMaps(ctx, workspace._id);
-    const [tags, automations, latestConversation, messageCount, enrollments, storedEmails] =
-      await Promise.all([
-        loadContactTags(ctx, contact._id),
-        loadContactMemberships(ctx, contact._id, maps),
-        loadLatestConversationForContact(ctx, contact._id),
-        loadContactMessageCount(ctx, contact._id),
-        ctx.db
-          .query("sequenceEnrollments")
-          .withIndex("by_contact_id", (q) => q.eq("contactId", contact._id))
-          .take(20),
-        loadStoredContactEmails(ctx, contact._id),
-      ]);
+    const [
+      tags,
+      automations,
+      latestConversation,
+      messageCount,
+      enrollments,
+      storedEmails,
+    ] = await Promise.all([
+      loadContactTags(ctx, contact._id),
+      loadContactMemberships(ctx, contact._id, maps),
+      loadLatestConversationForContact(ctx, contact._id),
+      loadContactMessageCount(ctx, contact._id),
+      ctx.db
+        .query("sequenceEnrollments")
+        .withIndex("by_contact_id", (q) => q.eq("contactId", contact._id))
+        .take(20),
+      loadStoredContactEmails(ctx, contact._id),
+    ]);
     const emailSummary = summarizeStoredContactEmails(storedEmails);
 
     return {
@@ -368,7 +467,9 @@ export const getContactDetail = query({
         enrollments
           .sort((a, b) => b.enrolledAt - a.enrolledAt)
           .map(async (enrollment) => {
-            const definition = maps.sequencesById.get(enrollment.sequenceDefinitionId);
+            const definition = maps.sequencesById.get(
+              enrollment.sequenceDefinitionId,
+            );
             return {
               id: enrollment._id,
               name: definition?.name ?? "Sequence",
@@ -562,14 +663,16 @@ export const upsertContactAutomationMembership = internalMutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("contactAutomationMemberships")
-      .withIndex("by_contact_and_kind_and_rule_and_comment_and_story_and_sequence", (q) =>
-        q
-          .eq("contactId", args.contactId)
-          .eq("automationKind", args.automationKind)
-          .eq("automationRuleId", args.automationRuleId)
-          .eq("commentAutomationId", args.commentAutomationId)
-          .eq("storyAutomationId", args.storyAutomationId ?? null)
-          .eq("sequenceDefinitionId", args.sequenceDefinitionId),
+      .withIndex(
+        "by_contact_and_kind_and_rule_and_comment_and_story_and_sequence",
+        (q) =>
+          q
+            .eq("contactId", args.contactId)
+            .eq("automationKind", args.automationKind)
+            .eq("automationRuleId", args.automationRuleId)
+            .eq("commentAutomationId", args.commentAutomationId)
+            .eq("storyAutomationId", args.storyAutomationId ?? null)
+            .eq("sequenceDefinitionId", args.sequenceDefinitionId),
       )
       .unique();
 
