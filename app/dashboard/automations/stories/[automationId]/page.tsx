@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowLeft, ToggleLeft, ToggleRight } from "lucide-react";
+import { ArrowLeft, ToggleLeft, ToggleRight, Trash2 } from "lucide-react";
+import { AutomationDeleteDialog } from "@/components/dashboard/automation-delete-dialog";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { StoryAutomationForm } from "@/components/dashboard/story-automation-form";
@@ -26,6 +27,7 @@ type SelectedStory = {
 
 export default function StoryAutomationDetailPage() {
   const params = useParams<{ automationId: string }>();
+  const router = useRouter();
   const automationId = params.automationId as Id<"storyAutomations">;
   const accountContext = useQuery(api.accounts.getSelectedAccountContext);
   const selectedAccount = accountContext?.selectedAccount ?? null;
@@ -46,6 +48,9 @@ export default function StoryAutomationDetailPage() {
   );
   const toggleStoryAutomation = useMutation(
     api.automations.storyAutomations.toggleStoryAutomation,
+  );
+  const deleteStoryAutomation = useMutation(
+    api.automations.storyAutomations.deleteStoryAutomation,
   );
 
   const [initialized, setInitialized] = useState(false);
@@ -77,6 +82,9 @@ export default function StoryAutomationDetailPage() {
   const [showStoryPicker, setShowStoryPicker] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (!automation || initialized) {
@@ -193,6 +201,41 @@ export default function StoryAutomationDetailPage() {
     }
   }
 
+  function handleDeleteDialogChange(open: boolean) {
+    if (isDeleting) {
+      return;
+    }
+
+    setShowDeleteDialog(open);
+    if (!open) {
+      setDeleteError(null);
+    }
+  }
+
+  async function handleDelete() {
+    if (!selectedAccount || isDeleting) {
+      return;
+    }
+
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      await deleteStoryAutomation({
+        accountId: selectedAccount.id,
+        automationId,
+      });
+      router.push("/dashboard/automations");
+    } catch (error) {
+      setDeleteError(
+        error instanceof Error
+          ? error.message
+          : "Failed to delete story automation.",
+      );
+      setIsDeleting(false);
+    }
+  }
+
   if (selectedAccount === null) {
     return (
       <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -234,128 +277,151 @@ export default function StoryAutomationDetailPage() {
   }
 
   return (
-    <main className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 border-b border-border bg-background px-8 py-4">
-        <div className="flex max-w-7xl items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/dashboard/automations"
-              className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <ArrowLeft className="size-3.5" />
-              Automations
-            </Link>
-            <span className="text-border">/</span>
-            <span className="text-sm font-medium text-foreground">
-              {automation.name}
-            </span>
-          </div>
+    <>
+      <main className="flex min-h-0 flex-1 flex-col">
+        <div className="shrink-0 border-b border-border bg-background px-8 py-4">
+          <div className="flex max-w-7xl items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <Link
+                href="/dashboard/automations"
+                className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <ArrowLeft className="size-3.5" />
+                Automations
+              </Link>
+              <span className="text-border">/</span>
+              <span className="text-sm font-medium text-foreground">
+                {automation.name}
+              </span>
+            </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                void toggleStoryAutomation({
-                  accountId: selectedAccount.id,
-                  automationId,
-                  status: automation.status === "live" ? "paused" : "live",
-                })
-              }
-              disabled={automation.status !== "live" && !canGoLive}
-              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {automation.status === "live" ? (
-                <ToggleRight className="size-5 text-primary" />
-              ) : (
-                <ToggleLeft className="size-5" />
-              )}
-              {automation.status === "live" ? "Pause" : "Go live"}
-            </button>
-            <button
-              type="button"
-              disabled={validationIssues.length > 0 || isSubmitting}
-              onClick={() => void handleSave()}
-              className="inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {isSubmitting ? "Saving..." : "Save changes"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  void toggleStoryAutomation({
+                    accountId: selectedAccount.id,
+                    automationId,
+                    status: automation.status === "live" ? "paused" : "live",
+                  })
+                }
+                disabled={automation.status !== "live" && !canGoLive}
+                className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {automation.status === "live" ? (
+                  <ToggleRight className="size-5 text-primary" />
+                ) : (
+                  <ToggleLeft className="size-5" />
+                )}
+                {automation.status === "live" ? "Pause" : "Go live"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteError(null);
+                  setShowDeleteDialog(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border border-destructive/20 px-3 py-2 text-sm font-medium text-destructive transition-colors hover:bg-destructive/5"
+              >
+                <Trash2 className="size-4" />
+                Delete
+              </button>
+              <button
+                type="button"
+                disabled={validationIssues.length > 0 || isSubmitting}
+                onClick={() => void handleSave()}
+                className="inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {isSubmitting ? "Saving..." : "Save changes"}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
 
-      <StoryAutomationForm
-        name={name}
-        onNameChange={setName}
-        storyScope={storyScope}
-        onStoryScopeChange={(value) => {
-          setStoryScope(value);
-          if (value === "any") {
-            setSelectedStoryId(null);
-            setSelectedStorySnapshot(null);
+        <StoryAutomationForm
+          name={name}
+          onNameChange={setName}
+          storyScope={storyScope}
+          onStoryScopeChange={(value) => {
+            setStoryScope(value);
+            if (value === "any") {
+              setSelectedStoryId(null);
+              setSelectedStorySnapshot(null);
+              setSelectedStoryExpiredAt(null);
+            }
+          }}
+          selectedStory={selectedStory}
+          selectedStoryExpiredAt={selectedStoryExpiredAt}
+          onPickStory={() => setShowStoryPicker(true)}
+          replyFilter={replyFilter}
+          onReplyFilterChange={setReplyFilter}
+          triggerTokens={triggerTokens}
+          tokenInput={tokenInput}
+          onTokenInputChange={setTokenInput}
+          onTriggerTokensChange={setTriggerTokens}
+          reactionEnabled={reactionEnabled}
+          onReactionEnabledChange={setReactionEnabled}
+          followGateEnabled={followGateEnabled}
+          onFollowGateEnabledChange={setFollowGateEnabled}
+          followGateText={followGateText}
+          onFollowGateTextChange={setFollowGateText}
+          emailCollectionEnabled={emailCollectionEnabled}
+          onEmailCollectionEnabledChange={setEmailCollectionEnabled}
+          emailCollectionText={emailCollectionText}
+          onEmailCollectionTextChange={setEmailCollectionText}
+          linkDmText={linkDmText}
+          onLinkDmTextChange={setLinkDmText}
+          linkButtons={linkButtons}
+          onLinkButtonsChange={setLinkButtons}
+          followUpEnabled={followUpEnabled}
+          onFollowUpEnabledChange={setFollowUpEnabled}
+          followUpText={followUpText}
+          onFollowUpTextChange={setFollowUpText}
+          tagOptions={options?.tags ?? []}
+          selectedTagIds={selectedTagIds}
+          onSelectedTagIdsChange={setSelectedTagIds}
+          validationIssues={validationIssues}
+          submissionError={submissionError}
+          username={selectedAccount.username}
+          profilePictureUrl={selectedAccount.profilePictureUrl}
+        />
+
+        <StoryPickerModal
+          accountId={selectedAccount.id}
+          open={showStoryPicker}
+          onOpenChange={setShowStoryPicker}
+          selectedStoryId={selectedStoryId}
+          onSelectionChange={(storyId) => {
+            setSelectedStoryId(storyId);
+            const liveStories = liveStoriesQuery ?? [];
+            const liveStory =
+              liveStories.find((item) => item.storyId === storyId) ?? null;
+            setSelectedStorySnapshot(
+              liveStory
+                ? {
+                    id: liveStory.storyId,
+                    mediaType: liveStory.mediaType,
+                    thumbnailUrl: liveStory.thumbnailUrl,
+                    mediaUrl: liveStory.mediaUrl,
+                    permalink: liveStory.permalink,
+                    timestamp: liveStory.timestamp,
+                  }
+                : null,
+            );
             setSelectedStoryExpiredAt(null);
-          }
-        }}
-        selectedStory={selectedStory}
-        selectedStoryExpiredAt={selectedStoryExpiredAt}
-        onPickStory={() => setShowStoryPicker(true)}
-        replyFilter={replyFilter}
-        onReplyFilterChange={setReplyFilter}
-        triggerTokens={triggerTokens}
-        tokenInput={tokenInput}
-        onTokenInputChange={setTokenInput}
-        onTriggerTokensChange={setTriggerTokens}
-        reactionEnabled={reactionEnabled}
-        onReactionEnabledChange={setReactionEnabled}
-        followGateEnabled={followGateEnabled}
-        onFollowGateEnabledChange={setFollowGateEnabled}
-        followGateText={followGateText}
-        onFollowGateTextChange={setFollowGateText}
-        emailCollectionEnabled={emailCollectionEnabled}
-        onEmailCollectionEnabledChange={setEmailCollectionEnabled}
-        emailCollectionText={emailCollectionText}
-        onEmailCollectionTextChange={setEmailCollectionText}
-        linkDmText={linkDmText}
-        onLinkDmTextChange={setLinkDmText}
-        linkButtons={linkButtons}
-        onLinkButtonsChange={setLinkButtons}
-        followUpEnabled={followUpEnabled}
-        onFollowUpEnabledChange={setFollowUpEnabled}
-        followUpText={followUpText}
-        onFollowUpTextChange={setFollowUpText}
-        tagOptions={options?.tags ?? []}
-        selectedTagIds={selectedTagIds}
-        onSelectedTagIdsChange={setSelectedTagIds}
-        validationIssues={validationIssues}
-        submissionError={submissionError}
-        username={selectedAccount.username}
-        profilePictureUrl={selectedAccount.profilePictureUrl}
-      />
+          }}
+        />
+      </main>
 
-      <StoryPickerModal
-        accountId={selectedAccount.id}
-        open={showStoryPicker}
-        onOpenChange={setShowStoryPicker}
-        selectedStoryId={selectedStoryId}
-        onSelectionChange={(storyId) => {
-          setSelectedStoryId(storyId);
-          const liveStories = liveStoriesQuery ?? [];
-          const liveStory =
-            liveStories.find((item) => item.storyId === storyId) ?? null;
-          setSelectedStorySnapshot(
-            liveStory
-              ? {
-                  id: liveStory.storyId,
-                  mediaType: liveStory.mediaType,
-                  thumbnailUrl: liveStory.thumbnailUrl,
-                  mediaUrl: liveStory.mediaUrl,
-                  permalink: liveStory.permalink,
-                  timestamp: liveStory.timestamp,
-                }
-              : null,
-          );
-          setSelectedStoryExpiredAt(null);
-        }}
+      <AutomationDeleteDialog
+        open={showDeleteDialog}
+        onOpenChange={handleDeleteDialogChange}
+        automationKind="story"
+        automationName={automation.name}
+        isDeleting={isDeleting}
+        error={deleteError}
+        onConfirm={() => void handleDelete()}
       />
-    </main>
+    </>
   );
 }

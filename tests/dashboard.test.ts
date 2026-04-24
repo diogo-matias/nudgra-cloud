@@ -116,6 +116,50 @@ async function seedThread(
   });
 }
 
+async function seedThreadBatch(
+  t: ReturnType<typeof convexTest>,
+  args: {
+    workspaceId: Id<"workspaces">;
+    instagramAccountId: Id<"instagramAccounts">;
+    instagramAccountExternalId: string;
+    count: number;
+    suffixPrefix: string;
+  },
+) {
+  await t.run(async (ctx) => {
+    for (let index = 0; index < args.count; index += 1) {
+      const suffix = `${args.suffixPrefix}-${index}`;
+      const contactId = await ctx.db.insert("contacts", {
+        workspaceId: args.workspaceId,
+        instagramAccountId: args.instagramAccountId,
+        instagramUserId: `contact_${suffix}`,
+        username: `user_${suffix}`,
+        displayName: `User ${suffix}`,
+        profilePictureUrl: null,
+        profilePictureFetchedAt: BASE_TIME + index,
+        firstInboundAt: BASE_TIME + index,
+        lastInboundAt: BASE_TIME + index,
+        lastMessageAt: BASE_TIME + index,
+      });
+
+      await ctx.db.insert("conversations", {
+        workspaceId: args.workspaceId,
+        instagramAccountId: args.instagramAccountId,
+        contactId,
+        conversationKey: `${args.instagramAccountExternalId}:contact_${suffix}`,
+        status: "active",
+        startedAt: BASE_TIME + index,
+        lastMessageAt: BASE_TIME + index,
+        lastInboundAt: BASE_TIME + index,
+        lastOutboundAt: null,
+        lastMessagePreview: `Message for ${suffix}`,
+        messagingWindowClosesAt: BASE_TIME + DAY_MS + index,
+        lastAutomationRuleId: null,
+      });
+    }
+  });
+}
+
 async function seedRule(
   t: ReturnType<typeof convexTest>,
   args: {
@@ -394,6 +438,40 @@ describe("dashboard", () => {
     const overview = await authT.query(api.dashboard.getOverview, {});
 
     expect(overview.stats.activeAutomations).toBe(2);
+  });
+
+  it("reports overview contact and conversation totals beyond the first 100 rows", async () => {
+    const t = convexTest({ schema, modules });
+    const fixture = await seedWorkspace(t);
+    const authT = t.withIdentity({ subject: fixture.userId });
+
+    const connected = await connectAccount(t, fixture, {
+      state: "dashboard-over-100",
+      externalId: "ig_dashboard_over_100",
+      username: "over_100",
+    });
+
+    await authT.mutation(api.accounts.selectAccount, {
+      accountId: connected.accountId,
+    });
+
+    await seedThreadBatch(t, {
+      workspaceId: fixture.workspaceId,
+      instagramAccountId: connected.accountId,
+      instagramAccountExternalId: "ig_dashboard_over_100",
+      count: 105,
+      suffixPrefix: "over-100",
+    });
+
+    const overview = await authT.query(api.dashboard.getOverview, {});
+    const account = overview.accounts.find(
+      (row) => row.id === connected.accountId,
+    );
+
+    expect(overview.stats.contacts).toBe(105);
+    expect(overview.stats.conversations).toBe(105);
+    expect(account?.contacts).toBe(105);
+    expect(account?.conversations).toBe(105);
   });
 
   it("includes Meta diagnostics for failed delivery logs", async () => {

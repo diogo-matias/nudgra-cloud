@@ -81,10 +81,8 @@ async function listWorkspaceAccounts(
   workspaceId: Id<"workspaces">,
 ) {
   return await t.run(async (ctx) => {
-    return await ctx.db
-      .query("instagramAccounts")
-      .withIndex("by_workspace_id", (q) => q.eq("workspaceId", workspaceId))
-      .collect();
+    const accounts = await ctx.db.query("instagramAccounts").collect();
+    return accounts.filter((account) => account.workspaceId === workspaceId);
   });
 }
 
@@ -93,12 +91,14 @@ async function getWorkspacePreference(
   fixture: Awaited<ReturnType<typeof seedWorkspace>>,
 ) {
   return await t.run(async (ctx) => {
-    return await ctx.db
-      .query("workspaceUserPreferences")
-      .withIndex("by_workspace_id_and_user_id", (q) =>
-        q.eq("workspaceId", fixture.workspaceId).eq("userId", fixture.userId),
-      )
-      .unique();
+    const preferences = await ctx.db.query("workspaceUserPreferences").collect();
+    return (
+      preferences.find(
+        (preference) =>
+          preference.workspaceId === fixture.workspaceId &&
+          preference.userId === fixture.userId,
+      ) ?? null
+    );
   });
 }
 

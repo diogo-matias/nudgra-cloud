@@ -240,13 +240,11 @@ async function listStoredContactEmails(
   contactId: Id<"contacts">,
 ) {
   return await t.run(async (ctx) => {
-    return await ctx.db
-      .query("contactEmails")
-      .withIndex("by_contact_id_and_last_collected_at", (q) =>
-        q.eq("contactId", contactId),
-      )
-      .order("desc")
-      .take(10);
+    const emails = await ctx.db.query("contactEmails").collect();
+    return emails
+      .filter((email) => email.contactId === contactId)
+      .sort((left, right) => right.lastCollectedAt - left.lastCollectedAt)
+      .slice(0, 10);
   });
 }
 
@@ -910,5 +908,102 @@ describe("comment automation reliability", () => {
       accountId: fixture.instagramAccountId,
     });
     expect(logs.some((entry) => entry.type === "comment_guardrail")).toBe(true);
+  });
+
+  it("deletes automations, force-closes active sessions, and keeps tracked links working", async () => {
+    const t = convexTest({ schema, modules });
+    const fixture = await seedWorkspace(t);
+    const authT = t.withIdentity({ subject: fixture.userId });
+
+    const activeAutomationId = await insertAutomation(t, fixture, {
+      followGateEnabled: true,
+      followGateText: "Follow first",
+      emailCollectionEnabled: false,
+      followUpEnabled: false,
+      openingDmEnabled: false,
+    });
+    const trackedAutomationId = await insertAutomation(t, fixture, {
+      openingDmEnabled: false,
+      followGateEnabled: false,
+      emailCollectionEnabled: false,
+      followUpEnabled: false,
+    });
+
+    const activeSession = await startSession(
+      t,
+      activeAutomationId,
+      fixture,
+      "delete-active",
+    );
+    const trackedSession = await startSession(
+      t,
+      trackedAutomationId,
+      fixture,
+      "delete-tracked",
+    );
+
+    const trackedLink = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("commentAutomationTrackedLinks")
+        .withIndex("by_session_id", (q) => q.eq("sessionId", trackedSession.sessionId))
+        .unique();
+    });
+
+    const activeSessionBeforeDelete = await t.run((ctx) =>
+      ctx.db.get(activeSession.sessionId),
+    );
+    expect(activeSessionBeforeDelete?.currentStep).toBe("awaiting_follow");
+    expect(trackedLink?.token).toBeTruthy();
+
+    await authT.mutation(
+      api.automations.commentAutomations.deleteCommentAutomation,
+      {
+        accountId: fixture.instagramAccountId,
+        automationId: activeAutomationId,
+      },
+    );
+    await authT.mutation(
+      api.automations.commentAutomations.deleteCommentAutomation,
+      {
+        accountId: fixture.instagramAccountId,
+        automationId: trackedAutomationId,
+      },
+    );
+
+    const activeSessionAfterDelete = await t.run((ctx) =>
+      ctx.db.get(activeSession.sessionId),
+    );
+    expect(activeSessionAfterDelete?.currentStep).toBe("completed");
+    expect(activeSessionAfterDelete?.lastStepAt).toBe(BASE_TIME);
+
+    const deletedAutomation = await authT.query(
+      api.automations.commentAutomations.getCommentAutomationById,
+      {
+        accountId: fixture.instagramAccountId,
+        automationId: activeAutomationId,
+      },
+    );
+    expect(deletedAutomation).toBeNull();
+
+    const listedAutomations = await authT.query(
+      api.automations.commentAutomations.listCommentAutomations,
+      {
+        accountId: fixture.instagramAccountId,
+      },
+    );
+    expect(
+      listedAutomations.some((automation) => automation.id === activeAutomationId),
+    ).toBe(false);
+    expect(
+      listedAutomations.some((automation) => automation.id === trackedAutomationId),
+    ).toBe(false);
+
+    const clickResult = await t.mutation(
+      api.automations.commentTracking.consumeTrackedLink,
+      {
+        token: trackedLink!.token,
+      },
+    );
+    expect(clickResult.destinationUrl).toBe("https://example.com/guide");
   });
 });

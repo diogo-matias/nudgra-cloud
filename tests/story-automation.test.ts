@@ -149,13 +149,11 @@ async function listStoredContactEmails(
   contactId: Id<"contacts">,
 ) {
   return await t.run(async (ctx) => {
-    return await ctx.db
-      .query("contactEmails")
-      .withIndex("by_contact_id_and_last_collected_at", (q) =>
-        q.eq("contactId", contactId),
-      )
-      .order("desc")
-      .take(10);
+    const emails = await ctx.db.query("contactEmails").collect();
+    return emails
+      .filter((email) => email.contactId === contactId)
+      .sort((left, right) => right.lastCollectedAt - left.lastCollectedAt)
+      .slice(0, 10);
   });
 }
 
@@ -378,5 +376,177 @@ describe("story automations", () => {
     expect(automation?.validationIssues).toContain(
       "The selected story is no longer live. Pick a new story before going live again.",
     );
+  });
+
+  it("deletes automations, force-closes active sessions, and keeps tracked links working", async () => {
+    const t = convexTest({ schema, modules });
+    const fixture = await seedWorkspace(t);
+    await insertStory(t, fixture);
+    const authT = t.withIdentity({ subject: fixture.userId });
+
+    const activeResult = await authT.mutation(
+      api.automations.storyAutomations.createStoryAutomation,
+      {
+        accountId: fixture.instagramAccountId,
+        name: "Story delete active",
+        storyScope: "specific",
+        selectedStoryId: "story_1",
+        replyFilter: "specific_words_or_reactions",
+        triggerTokens: ["link"],
+        triggerTokenLabels: ["Link"],
+        reactionEnabled: false,
+        followGateEnabled: true,
+        followGateText: "Follow first",
+        emailCollectionEnabled: false,
+        emailCollectionText: "",
+        linkDmText: "Here you go",
+        linkButtons: [{ label: "Open", url: "https://example.com/guide" }],
+        linkUrl: "https://example.com/guide",
+        linkButtonText: "Open",
+        followUpEnabled: false,
+        followUpText: "",
+        tagIds: [],
+        sequenceDefinitionId: null,
+        goLive: true,
+      },
+    );
+    const trackedResult = await authT.mutation(
+      api.automations.storyAutomations.createStoryAutomation,
+      {
+        accountId: fixture.instagramAccountId,
+        name: "Story delete tracked",
+        storyScope: "specific",
+        selectedStoryId: "story_1",
+        replyFilter: "specific_words_or_reactions",
+        triggerTokens: ["guide"],
+        triggerTokenLabels: ["Guide"],
+        reactionEnabled: false,
+        followGateEnabled: false,
+        followGateText: "",
+        emailCollectionEnabled: false,
+        emailCollectionText: "",
+        linkDmText: "Open the guide",
+        linkButtons: [{ label: "Open", url: "https://example.com/guide" }],
+        linkUrl: "https://example.com/guide",
+        linkButtonText: "Open",
+        followUpEnabled: false,
+        followUpText: "",
+        tagIds: [],
+        sequenceDefinitionId: null,
+        goLive: true,
+      },
+    );
+
+    const activeConversation = await seedConversation(t, fixture, "story-delete-active");
+    const trackedConversation = await seedConversation(
+      t,
+      fixture,
+      "story-delete-tracked",
+    );
+
+    const { activeSessionId, trackedSessionId } = await t.run(async (ctx) => {
+      const activeAutomation = await ctx.db.get(activeResult.automationId);
+      const trackedAutomation = await ctx.db.get(trackedResult.automationId);
+      if (!activeAutomation || !trackedAutomation) {
+        throw new Error("Automation not found.");
+      }
+
+      const activeSessionId = await startStoryAutomationSession(
+        ctx as never,
+        activeAutomation,
+        {
+          workspaceId: fixture.workspaceId,
+          instagramAccountId: fixture.instagramAccountId,
+          storyAutomationId: activeResult.automationId,
+          contactId: activeConversation.contactId,
+          conversationId: activeConversation.conversationId,
+          matchedAt: BASE_TIME,
+          triggerMessageId: "mid.story.delete.active",
+          storyId: "story_1",
+          storyUrl: "https://instagram.com/stories/nudgra/story_1",
+          storyToken: "link",
+        },
+      );
+      const trackedSessionId = await startStoryAutomationSession(
+        ctx as never,
+        trackedAutomation,
+        {
+          workspaceId: fixture.workspaceId,
+          instagramAccountId: fixture.instagramAccountId,
+          storyAutomationId: trackedResult.automationId,
+          contactId: trackedConversation.contactId,
+          conversationId: trackedConversation.conversationId,
+          matchedAt: BASE_TIME,
+          triggerMessageId: "mid.story.delete.tracked",
+          storyId: "story_1",
+          storyUrl: "https://instagram.com/stories/nudgra/story_1",
+          storyToken: "guide",
+        },
+      );
+
+      if (!activeSessionId || !trackedSessionId) {
+        throw new Error("Expected story sessions to be created.");
+      }
+
+      return { activeSessionId, trackedSessionId };
+    });
+
+    const trackedLink = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("storyAutomationTrackedLinks")
+        .withIndex("by_session_id", (q) => q.eq("sessionId", trackedSessionId))
+        .unique();
+    });
+
+    const activeSessionBeforeDelete = await t.run((ctx) =>
+      ctx.db.get(activeSessionId),
+    );
+    expect(activeSessionBeforeDelete?.currentStep).toBe("awaiting_follow");
+    expect(trackedLink?.token).toBeTruthy();
+
+    await authT.mutation(api.automations.storyAutomations.deleteStoryAutomation, {
+      accountId: fixture.instagramAccountId,
+      automationId: activeResult.automationId,
+    });
+    await authT.mutation(api.automations.storyAutomations.deleteStoryAutomation, {
+      accountId: fixture.instagramAccountId,
+      automationId: trackedResult.automationId,
+    });
+
+    const activeSessionAfterDelete = await t.run((ctx) =>
+      ctx.db.get(activeSessionId),
+    );
+    expect(activeSessionAfterDelete?.currentStep).toBe("completed");
+    expect(activeSessionAfterDelete?.lastStepAt).toBe(BASE_TIME);
+
+    const deletedAutomation = await authT.query(
+      api.automations.storyAutomations.getStoryAutomationById,
+      {
+        accountId: fixture.instagramAccountId,
+        automationId: activeResult.automationId,
+      },
+    );
+    expect(deletedAutomation).toBeNull();
+
+    const listedAutomations = await authT.query(
+      api.automations.storyAutomations.listStoryAutomations,
+      {
+        accountId: fixture.instagramAccountId,
+      },
+    );
+    expect(
+      listedAutomations.some((automation) => automation.id === activeResult.automationId),
+    ).toBe(false);
+    expect(
+      listedAutomations.some((automation) => automation.id === trackedResult.automationId),
+    ).toBe(false);
+
+    const clickResult = await t.mutation(
+      api.automations.storyTracking.consumeTrackedLink,
+      {
+        token: trackedLink!.token,
+      },
+    );
+    expect(clickResult.destinationUrl).toBe("https://example.com/guide");
   });
 });
