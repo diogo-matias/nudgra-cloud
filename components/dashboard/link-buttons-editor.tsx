@@ -152,8 +152,9 @@ export function LinkButtonsEditor({
           <div className="min-w-0">
             <p className="text-sm font-medium text-foreground">Links</p>
             <p className="mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
-              Nudgra sends up to 3 buttons in one DM. If you add more, the rest
-              are sent in a follow-up message automatically.
+              Nudgra sends up to 3 buttons per message. In flows that continue
+              after user interaction, extra buttons can be sent in a follow-up
+              message.
             </p>
           </div>
           <Button

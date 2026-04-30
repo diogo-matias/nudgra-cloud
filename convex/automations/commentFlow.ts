@@ -45,7 +45,11 @@ type CommentAutomationLike = Pick<
   CommentAutomation,
   | "status"
   | "postScope"
+  | "openingDmEnabled"
+  | "openingDmText"
   | "followGateEnabled"
+  | "emailCollectionEnabled"
+  | "emailCollectionText"
   | "followUpEnabled"
   | "linkButtons"
   | "linkUrl"
@@ -391,6 +395,25 @@ function getLinkButtons(
   ];
 }
 
+function startsWithLinkDelivery(
+  automation: Pick<
+    CommentAutomation,
+    | "openingDmEnabled"
+    | "openingDmText"
+    | "followGateEnabled"
+    | "emailCollectionEnabled"
+    | "emailCollectionText"
+  >,
+) {
+  const hasOpeningDm =
+    automation.openingDmEnabled && automation.openingDmText.trim().length > 0;
+  const hasEmailPrompt =
+    automation.emailCollectionEnabled &&
+    automation.emailCollectionText.trim().length > 0;
+
+  return !hasOpeningDm && !automation.followGateEnabled && !hasEmailPrompt;
+}
+
 export function getCommentAutomationValidationIssues(
   automation: CommentAutomationLike,
 ) {
@@ -398,6 +421,15 @@ export function getCommentAutomationValidationIssues(
 
   if (automation.followUpEnabled && getLinkButtons(automation).length === 0) {
     issues.push("Follow-up requires at least one tracked link button.");
+  }
+
+  if (
+    startsWithLinkDelivery(automation) &&
+    getLinkButtons(automation).length > 3
+  ) {
+    issues.push(
+      "Comment automations that start with the link DM can send at most 3 link buttons in the initial private reply. Add an opening DM, follow gate, or email step before the link DM, or reduce the link buttons to 3.",
+    );
   }
 
   if (
@@ -842,8 +874,12 @@ async function sendLinkDm(
 
   const messageText = args.automation.linkDmText.trim() || DEFAULT_LINK_MESSAGE;
   const rawLinkButtons = getLinkButtons(args.automation);
+  const deliverableLinkButtons =
+    args.deliveryKind === "private_reply"
+      ? rawLinkButtons.slice(0, 3)
+      : rawLinkButtons;
   const trackedButtons = await createTrackedLinkButtons({
-    buttons: rawLinkButtons,
+    buttons: deliverableLinkButtons,
     routePrefix: "/api/comment-automation/links",
     insertTrackedLink: async ({
       token,
