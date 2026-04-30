@@ -30,10 +30,16 @@ import { cn } from "@/lib/utils";
 /* ─── helpers ─── */
 
 function sourceLabel(
-  source: "rule" | "comment_automation" | "story_automation" | "sequence",
+  source:
+    | "rule"
+    | "comment_automation"
+    | "story_automation"
+    | "follower_automation"
+    | "sequence",
 ) {
   if (source === "comment_automation") return "Comment automation";
   if (source === "story_automation") return "Story automation";
+  if (source === "follower_automation") return "Follower automation";
   if (source === "sequence") return "Sequence";
   return "Rule";
 }

@@ -146,6 +146,13 @@ function parseAutomationFilter(value: string) {
     };
   }
 
+  if (kind === "follower_automation") {
+    return {
+      kind: "follower_automation" as const,
+      followerAutomationId: id as Id<"followerAutomations">,
+    };
+  }
+
   if (kind === "sequence") {
     return {
       kind: "sequence" as const,
@@ -157,13 +164,21 @@ function parseAutomationFilter(value: string) {
 }
 
 function automationKindLabel(
-  kind: "rule" | "comment_automation" | "story_automation" | "sequence",
+  kind:
+    | "rule"
+    | "comment_automation"
+    | "story_automation"
+    | "follower_automation"
+    | "sequence",
 ) {
   if (kind === "comment_automation") {
     return "Comment";
   }
   if (kind === "story_automation") {
     return "Story";
+  }
+  if (kind === "follower_automation") {
+    return "Follower";
   }
   if (kind === "sequence") {
     return "Sequence";
@@ -257,6 +272,7 @@ export default function ContactsPage() {
     rules: [],
     commentAutomations: [],
     storyAutomations: [],
+    followerAutomations: [],
     sequences: [],
   };
   const contactsQuery = useQuery(
@@ -446,6 +462,18 @@ export default function ContactsPage() {
                         <option
                           key={automation.id}
                           value={`story_automation:${automation.id}`}
+                        >
+                          {automation.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
+                  {automationFilters.followerAutomations.length > 0 ? (
+                    <optgroup label="Follower automations">
+                      {automationFilters.followerAutomations.map((automation) => (
+                        <option
+                          key={automation.id}
+                          value={`follower_automation:${automation.id}`}
                         >
                           {automation.label}
                         </option>

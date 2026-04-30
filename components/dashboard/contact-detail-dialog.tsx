@@ -40,13 +40,21 @@ type ContactRow = {
 };
 
 function kindLabel(
-  kind: "rule" | "comment_automation" | "story_automation" | "sequence",
+  kind:
+    | "rule"
+    | "comment_automation"
+    | "story_automation"
+    | "follower_automation"
+    | "sequence",
 ) {
   if (kind === "comment_automation") {
     return "Comment automation";
   }
   if (kind === "story_automation") {
     return "Story automation";
+  }
+  if (kind === "follower_automation") {
+    return "Follower automation";
   }
   if (kind === "sequence") {
     return "Sequence";

@@ -11,6 +11,7 @@ import {
   ToggleLeft,
   ToggleRight,
   Trash2,
+  UserPlus,
   Zap,
 } from "lucide-react";
 import { AutomationDeleteDialog } from "@/components/dashboard/automation-delete-dialog";
@@ -30,6 +31,11 @@ type DeleteTarget =
   | {
       kind: "story";
       id: Id<"storyAutomations">;
+      name: string;
+    }
+  | {
+      kind: "follower";
+      id: Id<"followerAutomations">;
       name: string;
     }
   | {
@@ -92,6 +98,18 @@ export default function AutomationsPage() {
     api.automations.storyAutomations.deleteStoryAutomation,
   );
 
+  const followerAutomations =
+    useQuery(
+      api.automations.followerAutomations.listFollowerAutomations,
+      selectedAccount ? { accountId: selectedAccount.id } : "skip",
+    ) ?? [];
+  const toggleFollowerAutomation = useMutation(
+    api.automations.followerAutomations.toggleFollowerAutomation,
+  );
+  const deleteFollowerAutomation = useMutation(
+    api.automations.followerAutomations.deleteFollowerAutomation,
+  );
+
   const activeRulesCount = rules.filter((rule) => rule.isActive).length;
   const liveCommentCount = commentAutomations.filter(
     (automation) => automation.status === "live",
@@ -99,8 +117,16 @@ export default function AutomationsPage() {
   const liveStoryCount = storyAutomations.filter(
     (automation) => automation.status === "live",
   ).length;
-  const totalActive = activeRulesCount + liveCommentCount + liveStoryCount;
-  const totalCount = rules.length + commentAutomations.length + storyAutomations.length;
+  const liveFollowerCount = followerAutomations.filter(
+    (automation) => automation.status === "live",
+  ).length;
+  const totalActive =
+    activeRulesCount + liveCommentCount + liveStoryCount + liveFollowerCount;
+  const totalCount =
+    rules.length +
+    commentAutomations.length +
+    storyAutomations.length +
+    followerAutomations.length;
 
   function handleDeleteDialogChange(open: boolean) {
     if (isDeleting) {
@@ -129,6 +155,11 @@ export default function AutomationsPage() {
         });
       } else if (deleteTarget.kind === "story") {
         await deleteStoryAutomation({
+          accountId: selectedAccount.id,
+          automationId: deleteTarget.id,
+        });
+      } else if (deleteTarget.kind === "follower") {
+        await deleteFollowerAutomation({
           accountId: selectedAccount.id,
           automationId: deleteTarget.id,
         });
@@ -222,7 +253,11 @@ export default function AutomationsPage() {
                   className={cn(
                     rowClassName,
                     index <
-                      commentAutomations.length + storyAutomations.length + rules.length - 1 &&
+                      commentAutomations.length +
+                        storyAutomations.length +
+                        followerAutomations.length +
+                        rules.length -
+                        1 &&
                       "border-b border-border",
                   )}
                 >
@@ -392,7 +427,11 @@ export default function AutomationsPage() {
                   href={`/dashboard/automations/stories/${automation.id}`}
                   className={cn(
                     rowClassName,
-                    index < storyAutomations.length + rules.length - 1 &&
+                    index <
+                      storyAutomations.length +
+                        followerAutomations.length +
+                        rules.length -
+                        1 &&
                       "border-b border-border",
                   )}
                 >
@@ -535,6 +574,165 @@ export default function AutomationsPage() {
                         setDeleteError(null);
                         setDeleteTarget({
                           kind: "story",
+                          id: automation.id,
+                          name: automation.name,
+                        });
+                      }}
+                      className={iconButtonClassName}
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  </div>
+                </Link>
+              );
+            })}
+
+            {followerAutomations.map((automation, index) => {
+              const ctr =
+                automation.totalSessions > 0
+                  ? (
+                      (automation.buttonClickCount / automation.totalSessions) *
+                      100
+                    ).toFixed(1)
+                  : null;
+
+              return (
+                <Link
+                  key={automation.id}
+                  href={`/dashboard/automations/followers/${automation.id}`}
+                  className={cn(
+                    rowClassName,
+                    index < followerAutomations.length + rules.length - 1 &&
+                      "border-b border-border",
+                  )}
+                >
+                  <div className="flex min-w-0 items-start gap-3">
+                    <div
+                      className={cn(
+                        "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg",
+                        automation.status === "live" ? "bg-primary/10" : "bg-muted",
+                      )}
+                    >
+                      <UserPlus
+                        className={cn(
+                          "size-4",
+                          automation.status === "live"
+                            ? "text-primary"
+                            : "text-muted-foreground",
+                        )}
+                      />
+                    </div>
+                    <div className="flex min-w-0 flex-col gap-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                            automation.status === "live"
+                              ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : automation.status === "paused"
+                                ? "border border-border bg-muted text-muted-foreground"
+                                : "border border-amber-200 bg-amber-50 text-amber-700",
+                          )}
+                        >
+                          {automation.status === "live"
+                            ? "Live"
+                            : automation.status === "paused"
+                              ? "Paused"
+                              : "Draft"}
+                        </span>
+                        <p className="truncate text-sm font-semibold text-foreground">
+                          {automation.name}
+                        </p>
+                        <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                          Follower automation
+                        </span>
+                        {automation.validationIssues.length > 0 ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                            <AlertTriangle className="size-3" />
+                            Needs fix
+                          </span>
+                        ) : null}
+                        {automation.guardrailTrippedAt ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-destructive/20 bg-destructive/5 px-2 py-0.5 text-[10px] font-medium text-destructive">
+                            <AlertTriangle className="size-3" />
+                            Safety paused
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="max-w-md truncate text-xs text-muted-foreground">
+                        Sends a welcome DM when Meta delivers a new follower
+                        event
+                        {automation.linkButtons.length > 0
+                          ? ` · ${automation.linkButtons.length} tracked link${automation.linkButtons.length !== 1 ? "s" : ""}`
+                          : ""}
+                      </p>
+                      <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground sm:hidden">
+                        <span className="tabular-nums font-medium text-foreground">
+                          {automation.triggerCount}
+                        </span>
+                        <span>runs</span>
+                        {ctr !== null ? (
+                          <>
+                            <span className="text-border">|</span>
+                            <span className="tabular-nums font-medium text-foreground">
+                              {ctr}%
+                            </span>
+                            <span>CTR</span>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="hidden text-right text-sm font-semibold tabular-nums text-foreground sm:block">
+                    {automation.triggerCount}
+                  </p>
+                  <p className="hidden text-right text-sm font-semibold tabular-nums text-foreground sm:block">
+                    {ctr !== null ? `${ctr}%` : "\u2014"}
+                  </p>
+                  <p className="hidden text-right text-xs text-muted-foreground sm:block">
+                    {formatRelativeTime(automation.lastModifiedAt)}
+                  </p>
+                  <div className="flex justify-end gap-1">
+                    <button
+                      type="button"
+                      disabled={
+                        automation.status !== "live" &&
+                        automation.validationIssues.length > 0
+                      }
+                      title={
+                        automation.status !== "live" &&
+                        automation.validationIssues.length > 0
+                          ? automation.validationIssues[0] ??
+                            "Automation must be fixed before going live."
+                          : automation.status === "live"
+                            ? "Pause automation"
+                            : "Go live"
+                      }
+                      onClick={(event) => {
+                        preventRowNavigation(event);
+                        void toggleFollowerAutomation({
+                          accountId: selectedAccount.id,
+                          automationId: automation.id,
+                          status: automation.status === "live" ? "paused" : "live",
+                        });
+                      }}
+                      className={iconButtonClassName}
+                    >
+                      {automation.status === "live" ? (
+                        <ToggleRight className="size-5 text-primary" />
+                      ) : (
+                        <ToggleLeft className="size-5" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      title="Delete automation"
+                      onClick={(event) => {
+                        preventRowNavigation(event);
+                        setDeleteError(null);
+                        setDeleteTarget({
+                          kind: "follower",
                           id: automation.id,
                           name: automation.name,
                         });

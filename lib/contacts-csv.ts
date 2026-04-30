@@ -1,5 +1,10 @@
 type ContactCsvAutomation = {
-  kind: "rule" | "comment_automation" | "story_automation" | "sequence";
+  kind:
+    | "rule"
+    | "comment_automation"
+    | "story_automation"
+    | "follower_automation"
+    | "sequence";
   label: string;
   status: string | null;
 };
@@ -49,6 +54,8 @@ function getAutomationKindLabel(kind: ContactCsvAutomation["kind"]) {
       return "Comment";
     case "story_automation":
       return "Story";
+    case "follower_automation":
+      return "Follower";
     case "sequence":
       return "Sequence";
     default:
