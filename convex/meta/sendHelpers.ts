@@ -52,6 +52,7 @@ type QueueAutomatedBaseArgs = {
   contactId: Id<"contacts">;
   automationRuleId: Id<"automationRules"> | null;
   storyAutomationId?: Id<"storyAutomations"> | null;
+  followerAutomationId?: Id<"followerAutomations"> | null;
   sequenceEnrollmentId: Id<"sequenceEnrollments"> | null;
   triggerMessageId?: string | null;
 };
@@ -160,6 +161,7 @@ async function queueAutomatedMessage(
     contactId: args.contactId,
     automationRuleId: args.automationRuleId,
     storyAutomationId: args.storyAutomationId ?? null,
+    followerAutomationId: args.followerAutomationId ?? null,
     sequenceEnrollmentId: args.sequenceEnrollmentId,
     deliveryKind,
     privateReplyCommentId,

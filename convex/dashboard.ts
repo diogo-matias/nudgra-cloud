@@ -500,6 +500,9 @@ export const listLogs = query({
                 if (automationType === "story_automation") {
                   return "story_automation";
                 }
+                if (automationType === "follower_automation") {
+                  return "follower_automation";
+                }
                 return "keyword_match";
               })(),
         status: delivery.status,

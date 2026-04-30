@@ -32,7 +32,10 @@ function parseStoredAttemptPayload(payload: string | null) {
 function buildDeliverySource(
   attempt: Pick<
     Doc<"deliveryAttempts">,
-    "automationRuleId" | "storyAutomationId" | "sequenceEnrollmentId"
+    | "automationRuleId"
+    | "storyAutomationId"
+    | "followerAutomationId"
+    | "sequenceEnrollmentId"
   >,
 ) {
   switch (getDeliveryAttemptAutomationType(attempt)) {
@@ -40,6 +43,8 @@ function buildDeliverySource(
       return "comment_automation" as const;
     case "story_automation":
       return "story_automation" as const;
+    case "follower_automation":
+      return "follower_automation" as const;
     case "sequence":
       return "sequence" as const;
     case "rule":
@@ -134,6 +139,7 @@ export const markDeliveryAttemptResult = internalMutation({
       webhookEventId: null,
       automationRuleId: attempt.automationRuleId,
       storyAutomationId: attempt.storyAutomationId ?? null,
+      followerAutomationId: attempt.followerAutomationId ?? null,
       sequenceEnrollmentId: attempt.sequenceEnrollmentId,
       triggerMessageId,
     });

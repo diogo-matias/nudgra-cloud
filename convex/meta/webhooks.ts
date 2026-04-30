@@ -11,6 +11,7 @@ import {
   advanceStoryAutomationSession,
   startStoryAutomationSession,
 } from "../automations/storyFlow";
+import { advanceFollowerAutomationSession } from "../automations/followerFlow";
 import {
   advanceRuleAutomationSession,
   startRuleAutomationSession,
@@ -534,6 +535,28 @@ async function continueActiveAutomationSessions(
 ) {
   if (args.isEcho) {
     return false;
+  }
+
+  const activeFollowerSession = (
+    await ctx.db
+      .query("followerAutomationSessions")
+      .withIndex("by_conversation_id", (q) =>
+        q.eq("conversationId", args.conversationId),
+      )
+      .order("desc")
+      .take(10)
+  ).find(
+    (session) =>
+      session.currentStep !== "completed" &&
+      session.currentStep !== "link_sent" &&
+      session.currentStep !== "guardrail_tripped",
+  );
+
+  if (activeFollowerSession) {
+    await advanceFollowerAutomationSession(ctx, activeFollowerSession._id, {
+      text: args.inboundInteraction.text,
+    });
+    return true;
   }
 
   const activeStorySession = (

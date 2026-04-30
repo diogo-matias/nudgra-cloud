@@ -272,6 +272,8 @@ function describeConversationMessage(
         ? "sequence"
         : message.source === "story_automation"
           ? "story automation"
+          : message.source === "follower_automation"
+            ? "follower automation"
           : "rule";
 
     return {

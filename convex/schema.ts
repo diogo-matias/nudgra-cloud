@@ -12,12 +12,20 @@ const nullableCommentAutomationId = v.union(
   v.null(),
 );
 const nullableStoryAutomationId = v.union(v.id("storyAutomations"), v.null());
+const nullableFollowerAutomationId = v.union(
+  v.id("followerAutomations"),
+  v.null(),
+);
 const nullableCommentAutomationSessionId = v.union(
   v.id("commentAutomationSessions"),
   v.null(),
 );
 const nullableStoryAutomationSessionId = v.union(
   v.id("storyAutomationSessions"),
+  v.null(),
+);
+const nullableFollowerAutomationSessionId = v.union(
+  v.id("followerAutomationSessions"),
   v.null(),
 );
 const nullableConversationId = v.union(v.id("conversations"), v.null());
@@ -29,6 +37,7 @@ const nullableContactEmailAutomationKind = v.union(
   v.literal("rule"),
   v.literal("comment_automation"),
   v.literal("story_automation"),
+  v.literal("follower_automation"),
   v.null(),
 );
 const nullableSequenceEnrollmentId = v.union(
@@ -155,6 +164,7 @@ export default defineSchema({
     automationRuleId: nullableAutomationRuleId,
     commentAutomationId: nullableCommentAutomationId,
     storyAutomationId: nullableStoryAutomationId,
+    followerAutomationId: v.optional(nullableFollowerAutomationId),
     conversationId: nullableConversationId,
   })
     .index("by_contact_id_and_last_collected_at", [
@@ -205,6 +215,7 @@ export default defineSchema({
       v.literal("rule"),
       v.literal("comment_automation"),
       v.literal("story_automation"),
+      v.literal("follower_automation"),
       v.literal("sequence"),
     ),
     messageType: v.union(
@@ -226,6 +237,7 @@ export default defineSchema({
     webhookEventId: v.union(v.id("webhookEvents"), v.null()),
     automationRuleId: nullableAutomationRuleId,
     storyAutomationId: v.optional(nullableStoryAutomationId),
+    followerAutomationId: v.optional(nullableFollowerAutomationId),
     sequenceEnrollmentId: nullableSequenceEnrollmentId,
     triggerMessageId: v.optional(nullableString),
     storyReplyStoryId: v.optional(nullableString),
@@ -285,6 +297,7 @@ export default defineSchema({
       v.literal("rule"),
       v.literal("operator"),
       v.literal("story_automation"),
+      v.literal("follower_automation"),
     ),
     appliedAt: v.number(),
   })
@@ -346,6 +359,7 @@ export default defineSchema({
     contactId: v.id("contacts"),
     automationRuleId: nullableAutomationRuleId,
     storyAutomationId: v.optional(nullableStoryAutomationId),
+    followerAutomationId: v.optional(nullableFollowerAutomationId),
     sequenceEnrollmentId: nullableSequenceEnrollmentId,
     deliveryKind: v.optional(
       v.union(v.literal("response_dm"), v.literal("private_reply")),
@@ -685,6 +699,90 @@ export default defineSchema({
   })
     .index("by_token", ["token"])
     .index("by_session_id", ["sessionId"]),
+  followerAutomations: defineTable({
+    workspaceId: v.id("workspaces"),
+    instagramAccountId: v.id("instagramAccounts"),
+    createdByUserId: v.id("users"),
+    name: v.string(),
+    status: v.union(v.literal("draft"), v.literal("live"), v.literal("paused")),
+    welcomeDmText: v.string(),
+    linkDmText: v.string(),
+    linkUrl: v.string(),
+    linkButtonText: v.optional(v.string()),
+    linkButtons: v.optional(v.array(linkButtonValidator)),
+    emailCollectionEnabled: v.boolean(),
+    emailCollectionText: v.string(),
+    followUpEnabled: v.boolean(),
+    followUpText: v.string(),
+    tagIds: v.array(v.id("tags")),
+    sequenceDefinitionId: nullableSequenceDefinitionId,
+    guardrailTrippedAt: v.optional(nullableNumber),
+    guardrailReason: v.optional(nullableString),
+    guardrailSessionId: v.optional(nullableFollowerAutomationSessionId),
+    guardrailConversationId: v.optional(nullableConversationId),
+    triggerCount: v.number(),
+    lastTriggeredAt: nullableNumber,
+    lastModifiedAt: v.optional(nullableNumber),
+  })
+    .index("by_workspace_id", ["workspaceId"])
+    .index("by_workspace_id_and_status", ["workspaceId", "status"])
+    .index("by_instagram_account_id", ["instagramAccountId"])
+    .index("by_instagram_account_id_and_status", [
+      "instagramAccountId",
+      "status",
+    ]),
+  followerAutomationSessions: defineTable({
+    workspaceId: v.id("workspaces"),
+    followerAutomationId: v.id("followerAutomations"),
+    contactId: v.id("contacts"),
+    conversationId: v.id("conversations"),
+    instagramAccountId: v.id("instagramAccounts"),
+    currentStep: v.union(
+      v.literal("welcome_sent"),
+      v.literal("email_requested"),
+      v.literal("awaiting_email"),
+      v.literal("link_sent"),
+      v.literal("guardrail_tripped"),
+      v.literal("completed"),
+    ),
+    collectedEmail: nullableString,
+    followerEventKey: v.string(),
+    startedAt: v.number(),
+    lastStepAt: v.number(),
+    outboundMessageCount: v.optional(v.number()),
+    guardrailTrippedAt: v.optional(nullableNumber),
+    guardrailReason: v.optional(nullableString),
+    linkSentAt: v.optional(nullableNumber),
+    linkClickedAt: v.optional(nullableNumber),
+    followUpScheduledAt: v.optional(nullableNumber),
+    followUpSentAt: v.optional(nullableNumber),
+  })
+    .index("by_follower_automation_id", ["followerAutomationId"])
+    .index("by_contact_id_and_follower_automation_id", [
+      "contactId",
+      "followerAutomationId",
+    ])
+    .index("by_conversation_id", ["conversationId"])
+    .index("by_follower_event_key", ["followerEventKey"])
+    .index("by_workspace_id_and_last_step_at", ["workspaceId", "lastStepAt"])
+    .index("by_instagram_account_id_and_last_step_at", [
+      "instagramAccountId",
+      "lastStepAt",
+    ]),
+  followerAutomationTrackedLinks: defineTable({
+    workspaceId: v.id("workspaces"),
+    instagramAccountId: v.id("instagramAccounts"),
+    followerAutomationId: nullableFollowerAutomationId,
+    sessionId: v.id("followerAutomationSessions"),
+    token: v.string(),
+    destinationUrl: v.string(),
+    label: v.string(),
+    buttonIndex: v.number(),
+    clickedAt: nullableNumber,
+    createdAt: v.number(),
+  })
+    .index("by_token", ["token"])
+    .index("by_session_id", ["sessionId"]),
   automationRuleSessions: defineTable({
     workspaceId: v.id("workspaces"),
     automationRuleId: v.id("automationRules"),
@@ -748,11 +846,13 @@ export default defineSchema({
       v.literal("rule"),
       v.literal("comment_automation"),
       v.literal("story_automation"),
+      v.literal("follower_automation"),
       v.literal("sequence"),
     ),
     automationRuleId: nullableAutomationRuleId,
     commentAutomationId: nullableCommentAutomationId,
     storyAutomationId: v.optional(nullableStoryAutomationId),
+    followerAutomationId: v.optional(nullableFollowerAutomationId),
     sequenceDefinitionId: nullableSequenceDefinitionId,
     firstMatchedAt: v.number(),
     lastMatchedAt: v.number(),
@@ -767,16 +867,21 @@ export default defineSchema({
       "workspaceId",
       "storyAutomationId",
     ])
+    .index("by_workspace_id_and_follower_automation_id", [
+      "workspaceId",
+      "followerAutomationId",
+    ])
     .index("by_workspace_id_and_sequence_definition_id", [
       "workspaceId",
       "sequenceDefinitionId",
     ])
-    .index("by_contact_and_kind_and_rule_and_comment_and_story_and_sequence", [
+    .index("by_contact_kind_automation_ids", [
       "contactId",
       "automationKind",
       "automationRuleId",
       "commentAutomationId",
       "storyAutomationId",
+      "followerAutomationId",
       "sequenceDefinitionId",
     ]),
 });

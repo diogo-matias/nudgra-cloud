@@ -72,7 +72,11 @@ export function chunkButtons<T>(buttons: T[], size: number) {
 
 export async function createTrackedLinkButtons(args: {
   buttons: WebUrlButton[];
-  routePrefix: "/api/comment-automation/links" | "/api/rule-automation/links" | "/api/story-automation/links";
+  routePrefix:
+    | "/api/comment-automation/links"
+    | "/api/rule-automation/links"
+    | "/api/story-automation/links"
+    | "/api/follower-automation/links";
   insertTrackedLink: (input: {
     token: string;
     destinationUrl: string;
