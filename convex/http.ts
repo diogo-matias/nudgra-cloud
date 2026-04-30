@@ -34,6 +34,7 @@ http.route({
 
     // Route based on webhook object type
     let isCommentWebhook = false;
+    let isFollowerWebhook = false;
     try {
       const payload = JSON.parse(body);
       const entries = Array.isArray(payload?.entry) ? payload.entry : [];
@@ -44,15 +45,27 @@ http.route({
               isCommentWebhook = true;
               break;
             }
+            if (
+              change?.field === "followers" ||
+              change?.field === "follower" ||
+              change?.field === "follow"
+            ) {
+              isFollowerWebhook = true;
+              break;
+            }
           }
         }
-        if (isCommentWebhook) break;
+        if (isCommentWebhook || isFollowerWebhook) break;
       }
     } catch {
       // If JSON parsing fails, fall through to message handler
     }
 
-    if (isCommentWebhook) {
+    if (isFollowerWebhook) {
+      await ctx.runMutation(internal.meta.followerWebhooks.ingestFollowerWebhookPayload, {
+        body,
+      });
+    } else if (isCommentWebhook) {
       await ctx.runAction(internal.meta.commentWebhooks.ingestCommentWebhookPayload, {
         body,
       });

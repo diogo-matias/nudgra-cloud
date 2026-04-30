@@ -4,7 +4,7 @@ import { v } from "convex/values";
 import {
   META_GRAPH_API_VERSION,
   META_REQUESTED_SCOPES,
-  META_WEBHOOK_SUBSCRIBED_FIELDS,
+  getMetaWebhookSubscribedFields,
   requireMetaEnv,
 } from "./config";
 import { isMetaAuthError, parseMetaApiError } from "./authShared";
@@ -160,7 +160,7 @@ async function subscribeInstagramAccount(args: {
   endpoint.searchParams.set("access_token", args.accessToken);
   endpoint.searchParams.set(
     "subscribed_fields",
-    META_WEBHOOK_SUBSCRIBED_FIELDS.join(","),
+    getMetaWebhookSubscribedFields().join(","),
   );
 
   const response = await fetch(endpoint, {
