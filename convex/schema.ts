@@ -511,6 +511,10 @@ export default defineSchema({
     fetchedAt: v.number(),
   })
     .index("by_instagram_account_id", ["instagramAccountId"])
+    .index("by_instagram_account_id_and_timestamp", [
+      "instagramAccountId",
+      "timestamp",
+    ])
     .index("by_media_id", ["mediaId"]),
   instagramStories: defineTable({
     workspaceId: v.id("workspaces"),

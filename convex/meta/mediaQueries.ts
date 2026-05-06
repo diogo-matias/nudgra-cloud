@@ -30,18 +30,13 @@ export const listCachedMedia = query({
 
     const media = await ctx.db
       .query("instagramMedia")
-      .withIndex("by_instagram_account_id", (q) =>
+      .withIndex("by_instagram_account_id_and_timestamp", (q) =>
         q.eq("instagramAccountId", account._id),
       )
+      .order("desc")
       .take(50);
 
-    // Sort by timestamp descending (newest first)
     return media
-      .sort((a, b) => {
-        const aTime = new Date(a.timestamp).getTime();
-        const bTime = new Date(b.timestamp).getTime();
-        return bTime - aTime;
-      })
       .map((item) => ({
         id: item._id,
         mediaId: item.mediaId,
