@@ -41,7 +41,7 @@ This repository is no longer just a starter template. It already includes a real
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 20.9+
 - A Convex account
 - A Google OAuth app for sign-in
 - A Meta app if you want to test Instagram connection and webhooks

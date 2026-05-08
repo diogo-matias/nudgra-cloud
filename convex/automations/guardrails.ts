@@ -10,12 +10,17 @@ const MAX_RECENT_CONVERSATION_ATTEMPTS =
 export type ConversationGuardrailAutomationType =
   | "comment_automation"
   | "rule"
+  | "follower_automation"
   | "story_automation"
   | "sequence";
 
 type GuardrailAttempt = Pick<
   Doc<"deliveryAttempts">,
-  "automationRuleId" | "storyAutomationId" | "sequenceEnrollmentId" | "status"
+  | "automationRuleId"
+  | "storyAutomationId"
+  | "followerAutomationId"
+  | "sequenceEnrollmentId"
+  | "status"
 >;
 
 function isDeliveryAttemptStatusCountedForConversationGuardrail(
@@ -27,7 +32,10 @@ function isDeliveryAttemptStatusCountedForConversationGuardrail(
 export function getDeliveryAttemptAutomationType(
   attempt: Pick<
     GuardrailAttempt,
-    "automationRuleId" | "storyAutomationId" | "sequenceEnrollmentId"
+    | "automationRuleId"
+    | "storyAutomationId"
+    | "followerAutomationId"
+    | "sequenceEnrollmentId"
   >,
 ): ConversationGuardrailAutomationType {
   if (attempt.sequenceEnrollmentId !== null) {
@@ -36,6 +44,10 @@ export function getDeliveryAttemptAutomationType(
 
   if ((attempt.storyAutomationId ?? null) !== null) {
     return "story_automation";
+  }
+
+  if ((attempt.followerAutomationId ?? null) !== null) {
+    return "follower_automation";
   }
 
   if (attempt.automationRuleId !== null) {

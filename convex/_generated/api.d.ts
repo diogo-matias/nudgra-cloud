@@ -13,6 +13,9 @@ import type * as auth from "../auth.js";
 import type * as automations_commentAutomations from "../automations/commentAutomations.js";
 import type * as automations_commentFlow from "../automations/commentFlow.js";
 import type * as automations_commentTracking from "../automations/commentTracking.js";
+import type * as automations_followerAutomations from "../automations/followerAutomations.js";
+import type * as automations_followerFlow from "../automations/followerFlow.js";
+import type * as automations_followerTracking from "../automations/followerTracking.js";
 import type * as automations_guardrails from "../automations/guardrails.js";
 import type * as automations_ruleFlow from "../automations/ruleFlow.js";
 import type * as automations_ruleShared from "../automations/ruleShared.js";
@@ -37,6 +40,7 @@ import type * as meta_comments from "../meta/comments.js";
 import type * as meta_config from "../meta/config.js";
 import type * as meta_contactProfiles from "../meta/contactProfiles.js";
 import type * as meta_deliveryPolicy from "../meta/deliveryPolicy.js";
+import type * as meta_followerWebhooks from "../meta/followerWebhooks.js";
 import type * as meta_history from "../meta/history.js";
 import type * as meta_media from "../meta/media.js";
 import type * as meta_mediaQueries from "../meta/mediaQueries.js";
@@ -63,6 +67,9 @@ declare const fullApi: ApiFromModules<{
   "automations/commentAutomations": typeof automations_commentAutomations;
   "automations/commentFlow": typeof automations_commentFlow;
   "automations/commentTracking": typeof automations_commentTracking;
+  "automations/followerAutomations": typeof automations_followerAutomations;
+  "automations/followerFlow": typeof automations_followerFlow;
+  "automations/followerTracking": typeof automations_followerTracking;
   "automations/guardrails": typeof automations_guardrails;
   "automations/ruleFlow": typeof automations_ruleFlow;
   "automations/ruleShared": typeof automations_ruleShared;
@@ -87,6 +94,7 @@ declare const fullApi: ApiFromModules<{
   "meta/config": typeof meta_config;
   "meta/contactProfiles": typeof meta_contactProfiles;
   "meta/deliveryPolicy": typeof meta_deliveryPolicy;
+  "meta/followerWebhooks": typeof meta_followerWebhooks;
   "meta/history": typeof meta_history;
   "meta/media": typeof meta_media;
   "meta/mediaQueries": typeof meta_mediaQueries;
@@ -129,91 +137,5 @@ export declare const internal: FilterApi<
 >;
 
 export declare const components: {
-  migrations: {
-    lib: {
-      cancel: FunctionReference<
-        "mutation",
-        "internal",
-        { name: string },
-        {
-          batchSize?: number;
-          cursor?: string | null;
-          error?: string;
-          isDone: boolean;
-          latestEnd?: number;
-          latestStart: number;
-          name: string;
-          next?: Array<string>;
-          processed: number;
-          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
-        }
-      >;
-      cancelAll: FunctionReference<
-        "mutation",
-        "internal",
-        { sinceTs?: number },
-        Array<{
-          batchSize?: number;
-          cursor?: string | null;
-          error?: string;
-          isDone: boolean;
-          latestEnd?: number;
-          latestStart: number;
-          name: string;
-          next?: Array<string>;
-          processed: number;
-          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
-        }>
-      >;
-      clearAll: FunctionReference<
-        "mutation",
-        "internal",
-        { before?: number },
-        null
-      >;
-      getStatus: FunctionReference<
-        "query",
-        "internal",
-        { limit?: number; names?: Array<string> },
-        Array<{
-          batchSize?: number;
-          cursor?: string | null;
-          error?: string;
-          isDone: boolean;
-          latestEnd?: number;
-          latestStart: number;
-          name: string;
-          next?: Array<string>;
-          processed: number;
-          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
-        }>
-      >;
-      migrate: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          batchSize?: number;
-          cursor?: string | null;
-          dryRun: boolean;
-          fnHandle: string;
-          name: string;
-          next?: Array<{ fnHandle: string; name: string }>;
-          oneBatchOnly?: boolean;
-          reset?: boolean;
-        },
-        {
-          batchSize?: number;
-          cursor?: string | null;
-          error?: string;
-          isDone: boolean;
-          latestEnd?: number;
-          latestStart: number;
-          name: string;
-          next?: Array<string>;
-          processed: number;
-          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
-        }
-      >;
-    };
-  };
+  migrations: import("@convex-dev/migrations/_generated/component.js").ComponentApi<"migrations">;
 };

@@ -40,13 +40,21 @@ type ContactRow = {
 };
 
 function kindLabel(
-  kind: "rule" | "comment_automation" | "story_automation" | "sequence",
+  kind:
+    | "rule"
+    | "comment_automation"
+    | "story_automation"
+    | "follower_automation"
+    | "sequence",
 ) {
   if (kind === "comment_automation") {
     return "Comment automation";
   }
   if (kind === "story_automation") {
     return "Story automation";
+  }
+  if (kind === "follower_automation") {
+    return "Follower automation";
   }
   if (kind === "sequence") {
     return "Sequence";
@@ -73,6 +81,16 @@ export function ContactDetailDialog({
     api.contacts.getContactDetail,
     contact && open ? { accountId, contactId: contact.id } : "skip",
   );
+  const requestAvatarRefresh = (contactId: Id<"contacts">) => {
+    if (requestedRefreshIdsRef.current.has(contactId)) {
+      return;
+    }
+
+    requestedRefreshIdsRef.current.add(contactId);
+    void requestContactProfileRefresh({ accountId, contactId }).catch(() => {
+      requestedRefreshIdsRef.current.delete(contactId);
+    });
+  };
 
   useEffect(() => {
     if (!open || contact === null) {
@@ -125,6 +143,7 @@ export function ContactDetailDialog({
                       detail?.profilePictureUrl ?? contact.profilePictureUrl
                     }
                     size="xl"
+                    onImageError={() => requestAvatarRefresh(contact.id)}
                   />
                   <div className="space-y-1">
                     <h2 className="text-xl font-semibold text-foreground">

@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 type AccountAvatarProps = {
@@ -9,6 +10,7 @@ type AccountAvatarProps = {
   profilePictureUrl?: string | null;
   size?: "sm" | "md" | "lg";
   className?: string;
+  onImageError?: () => void;
 };
 
 const SIZE_CLASSES: Record<NonNullable<AccountAvatarProps["size"]>, string> = {
@@ -39,8 +41,12 @@ export function AccountAvatar({
   profilePictureUrl,
   size = "md",
   className,
+  onImageError,
 }: AccountAvatarProps) {
   const sizeClass = SIZE_CLASSES[size];
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
+  const shouldShowImage =
+    Boolean(profilePictureUrl) && failedImageUrl !== profilePictureUrl;
 
   return (
     <div
@@ -50,13 +56,17 @@ export function AccountAvatar({
         className,
       )}
     >
-      {profilePictureUrl ? (
+      {shouldShowImage ? (
         <Image
-          src={profilePictureUrl}
+          src={profilePictureUrl!}
           alt={getAccountPrimaryLabel({ username, name })}
           fill
           sizes={size === "sm" ? "32px" : size === "md" ? "40px" : "48px"}
           className="object-cover"
+          onError={() => {
+            setFailedImageUrl(profilePictureUrl ?? null);
+            onImageError?.();
+          }}
         />
       ) : (
         <div className="flex h-full w-full items-center justify-center">

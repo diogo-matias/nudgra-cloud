@@ -10,7 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-type AutomationDeleteKind = "comment" | "story" | "rule";
+type AutomationDeleteKind = "comment" | "story" | "follower" | "rule";
 
 type AutomationDeleteDialogProps = {
   open: boolean;
@@ -29,6 +29,10 @@ function getAutomationLabel(kind: AutomationDeleteKind) {
 
   if (kind === "story") {
     return "story automation";
+  }
+
+  if (kind === "follower") {
+    return "follower automation";
   }
 
   return "DM automation";

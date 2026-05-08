@@ -10,7 +10,12 @@ export const META_WEBHOOK_SUBSCRIBED_FIELDS = [
   "messages",
   "messaging_postbacks",
   "comments",
+  "followers",
 ];
+
+export function getMetaWebhookSubscribedFields() {
+  return META_WEBHOOK_SUBSCRIBED_FIELDS;
+}
 
 export function requireMetaEnv() {
   const appId = process.env.META_APP_ID;

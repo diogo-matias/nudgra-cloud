@@ -168,14 +168,22 @@ function serializeCommentAutomation(
 
 function ensureSupportedConfiguration(args: {
   postScope: "specific" | "any" | "next";
+  openingDmEnabled: boolean;
+  openingDmText: string;
   followGateEnabled: boolean;
+  emailCollectionEnabled: boolean;
+  emailCollectionText: string;
   followUpEnabled: boolean;
   normalizedLinkButtons: LinkButtonInput[];
 }) {
   const issues = getCommentAutomationValidationIssues({
     status: "draft",
     postScope: args.postScope,
+    openingDmEnabled: args.openingDmEnabled,
+    openingDmText: args.openingDmText,
     followGateEnabled: args.followGateEnabled,
+    emailCollectionEnabled: args.emailCollectionEnabled,
+    emailCollectionText: args.emailCollectionText,
     followUpEnabled: args.followUpEnabled,
     linkButtons:
       args.normalizedLinkButtons.length > 0 ? args.normalizedLinkButtons : undefined,
@@ -187,7 +195,11 @@ function ensureSupportedConfiguration(args: {
     Doc<"commentAutomations">,
     | "status"
     | "postScope"
+    | "openingDmEnabled"
+    | "openingDmText"
     | "followGateEnabled"
+    | "emailCollectionEnabled"
+    | "emailCollectionText"
     | "followUpEnabled"
     | "linkButtons"
     | "linkUrl"
@@ -377,7 +389,11 @@ export const createCommentAutomation = mutation({
 
     ensureSupportedConfiguration({
       postScope: args.postScope,
+      openingDmEnabled: args.openingDmEnabled,
+      openingDmText: args.openingDmText,
       followGateEnabled: args.followGateEnabled,
+      emailCollectionEnabled: args.emailCollectionEnabled,
+      emailCollectionText: args.emailCollectionText,
       followUpEnabled: args.followUpEnabled,
       normalizedLinkButtons,
     });
@@ -510,7 +526,11 @@ export const updateCommentAutomation = mutation({
 
     ensureSupportedConfiguration({
       postScope: args.postScope,
+      openingDmEnabled: args.openingDmEnabled,
+      openingDmText: args.openingDmText,
       followGateEnabled: args.followGateEnabled,
+      emailCollectionEnabled: args.emailCollectionEnabled,
+      emailCollectionText: args.emailCollectionText,
       followUpEnabled: args.followUpEnabled,
       normalizedLinkButtons,
     });

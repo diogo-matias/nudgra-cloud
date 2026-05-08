@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useConvex, useMutation, useQuery } from "convex/react";
 import { ChevronDown, Download, Search, Users } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -146,6 +146,13 @@ function parseAutomationFilter(value: string) {
     };
   }
 
+  if (kind === "follower_automation") {
+    return {
+      kind: "follower_automation" as const,
+      followerAutomationId: id as Id<"followerAutomations">,
+    };
+  }
+
   if (kind === "sequence") {
     return {
       kind: "sequence" as const,
@@ -157,13 +164,21 @@ function parseAutomationFilter(value: string) {
 }
 
 function automationKindLabel(
-  kind: "rule" | "comment_automation" | "story_automation" | "sequence",
+  kind:
+    | "rule"
+    | "comment_automation"
+    | "story_automation"
+    | "follower_automation"
+    | "sequence",
 ) {
   if (kind === "comment_automation") {
     return "Comment";
   }
   if (kind === "story_automation") {
     return "Story";
+  }
+  if (kind === "follower_automation") {
+    return "Follower";
   }
   if (kind === "sequence") {
     return "Sequence";
@@ -198,7 +213,27 @@ function downloadContactsCsv(contacts: ContactListItem[]) {
   URL.revokeObjectURL(url);
 }
 
+function filterContactsBySearch(contacts: ContactListItem[], search: string) {
+  const query = search.trim().toLowerCase();
+  if (!query) {
+    return contacts;
+  }
+
+  return contacts.filter((contact) =>
+    [
+      contact.displayName,
+      contact.username,
+      ...contact.emails,
+      ...contact.tags.map((tag) => tag.label),
+      ...contact.automations.map((automation) => automation.label),
+    ]
+      .filter((value): value is string => typeof value === "string")
+      .some((value) => value.toLowerCase().includes(query)),
+  );
+}
+
 export default function ContactsPage() {
+  const convex = useConvex();
   const accountContext = useQuery(api.accounts.getSelectedAccountContext);
   const selectedAccount = accountContext?.selectedAccount ?? null;
   const [search, setSearch] = useState("");
@@ -206,6 +241,7 @@ export default function ContactsPage() {
   const [selectedContact, setSelectedContact] =
     useState<ContactListItem | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const requestedRefreshIdsRef = useRef(new Set<string>());
   const requestContactProfileRefresh = useMutation(
     api.contacts.requestContactProfileRefresh,
@@ -236,6 +272,7 @@ export default function ContactsPage() {
     rules: [],
     commentAutomations: [],
     storyAutomations: [],
+    followerAutomations: [],
     sequences: [],
   };
   const contactsQuery = useQuery(
@@ -252,6 +289,23 @@ export default function ContactsPage() {
   const pageRequestKey = `${contactsScopeKey}:${
     activePaginationState.pageCursor ?? "first"
   }`;
+  const requestAvatarRefresh = (contactId: Id<"contacts">) => {
+    if (selectedAccount === null) {
+      return;
+    }
+
+    if (requestedRefreshIdsRef.current.has(contactId)) {
+      return;
+    }
+
+    requestedRefreshIdsRef.current.add(contactId);
+    void requestContactProfileRefresh({
+      accountId: selectedAccount.id,
+      contactId,
+    }).catch(() => {
+      requestedRefreshIdsRef.current.delete(contactId);
+    });
+  };
 
   useEffect(() => {
     dispatchPagination({ type: "reset", scopeKey: contactsScopeKey });
@@ -278,23 +332,7 @@ export default function ContactsPage() {
   ]);
 
   const filteredContacts = useMemo(() => {
-    const source = activePaginationState.contacts;
-    const query = search.trim().toLowerCase();
-    if (!query) {
-      return source;
-    }
-
-    return source.filter((contact) =>
-      [
-        contact.displayName,
-        contact.username,
-        ...contact.emails,
-        ...contact.tags.map((tag) => tag.label),
-        ...contact.automations.map((automation) => automation.label),
-      ]
-        .filter((value): value is string => typeof value === "string")
-        .some((value) => value.toLowerCase().includes(query)),
-    );
+    return filterContactsBySearch(activePaginationState.contacts, search);
   }, [activePaginationState.contacts, search]);
 
   useEffect(() => {
@@ -345,6 +383,35 @@ export default function ContactsPage() {
     : `${filteredContacts.length} contact${
         filteredContacts.length === 1 ? "" : "s"
       }`;
+  const handleExportContacts = async () => {
+    setIsExporting(true);
+
+    try {
+      const allContacts: ContactListItem[] = [];
+      let cursor: string | null = null;
+      let hasMore = true;
+
+      while (hasMore) {
+        const result: ContactsQueryResult = await convex.query(
+          api.contacts.listContacts,
+          {
+            accountId: selectedAccount.id,
+            automationFilter,
+            limit: 100,
+            cursor,
+          },
+        );
+
+        allContacts.push(...result.contacts);
+        cursor = result.nextCursor;
+        hasMore = result.hasMore && cursor !== null;
+      }
+
+      downloadContactsCsv(filterContactsBySearch(allContacts, search));
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   return (
     <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -418,6 +485,18 @@ export default function ContactsPage() {
                       ))}
                     </optgroup>
                   ) : null}
+                  {automationFilters.followerAutomations.length > 0 ? (
+                    <optgroup label="Follower automations">
+                      {automationFilters.followerAutomations.map((automation) => (
+                        <option
+                          key={automation.id}
+                          value={`follower_automation:${automation.id}`}
+                        >
+                          {automation.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null}
                   {automationFilters.sequences.length > 0 ? (
                     <optgroup label="Sequences">
                       {automationFilters.sequences.map((sequence) => (
@@ -449,10 +528,12 @@ export default function ContactsPage() {
                 type="button"
                 variant="outline"
                 className="h-10 rounded-xl px-3"
-                onClick={() => downloadContactsCsv(filteredContacts)}
-                disabled={filteredContacts.length === 0}
+                onClick={() => {
+                  void handleExportContacts();
+                }}
+                disabled={filteredContacts.length === 0 || isExporting}
               >
-                Export CSV
+                {isExporting ? "Exporting..." : "Export CSV"}
                 <Download className="size-4" />
               </Button>
             </div>
@@ -497,6 +578,7 @@ export default function ContactsPage() {
                               username={contact.username}
                               profilePictureUrl={contact.profilePictureUrl}
                               size="lg"
+                              onImageError={() => requestAvatarRefresh(contact.id)}
                             />
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold text-foreground">

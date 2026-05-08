@@ -182,7 +182,11 @@ export function getCommentAutomationFormValidationIssues(args: {
   selectedMediaIds: string[];
   commentFilter: CommentFilter;
   triggerKeywords: string[];
+  openingDmEnabled: boolean;
+  openingDmText: string;
   followGateEnabled: boolean;
+  emailCollectionEnabled: boolean;
+  emailCollectionText: string;
   linkDmText: string;
   linkButtons: LinkLike[];
   followUpEnabled: boolean;
@@ -212,6 +216,16 @@ export function getCommentAutomationFormValidationIssues(args: {
 
   if (args.followUpEnabled && args.linkButtons.length === 0) {
     issues.push("Follow-up requires at least one tracked link button.");
+  }
+
+  const startsWithLinkDelivery =
+    !(args.openingDmEnabled && args.openingDmText.trim().length > 0) &&
+    !args.followGateEnabled &&
+    !(args.emailCollectionEnabled && args.emailCollectionText.trim().length > 0);
+  if (startsWithLinkDelivery && args.linkButtons.length > 3) {
+    issues.push(
+      "Comment automations that start with the link DM can send at most 3 link buttons in the initial private reply. Add an opening DM, follow gate, or email step before the link DM, or reduce the link buttons to 3.",
+    );
   }
 
   return issues;

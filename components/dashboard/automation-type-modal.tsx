@@ -7,7 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { MessageSquare, BookOpen, Send } from "lucide-react";
+import { MessageSquare, BookOpen, Send, UserPlus } from "lucide-react";
 
 type AutomationType = {
   id: string;
@@ -44,6 +44,15 @@ const AUTOMATION_TYPES: AutomationType[] = [
       "Capture leads when people reply to your stories. Send automated DMs and collect contact information.",
     icon: BookOpen,
     href: "/dashboard/automations/stories/new",
+    available: true,
+  },
+  {
+    id: "follower-welcome",
+    title: "When someone follows you",
+    description:
+      "Welcome new followers with an automated DM, optional tracked links, email capture, and re-engagement follow-ups.",
+    icon: UserPlus,
+    href: "/dashboard/automations/followers/new",
     available: true,
   },
 ];

@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useAuthActions } from "@convex-dev/auth/react";
-import { useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import {
   AlertTriangle,
   AtSign,
@@ -21,6 +21,7 @@ import {
   Zap,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import {
   AccountAvatar,
@@ -78,12 +79,25 @@ export function DashboardSidebar({
   const pathname = usePathname();
   const { signOut } = useAuthActions();
   const router = useRouter();
+  const requestedAvatarRefreshIdsRef = useRef(new Set<string>());
   const [openSwitcherPath, setOpenSwitcherPath] = useState<string | null>(
     null,
   );
   const accountContext = useQuery(api.accounts.getSelectedAccountContext);
   const selectAccount = useMutation(api.accounts.selectAccount);
+  const refreshAccountProfile = useAction(api.accounts.refreshAccountProfile);
   const switcherOpen = openSwitcherPath === pathname;
+
+  const requestAvatarRefresh = (accountId: Id<"instagramAccounts">) => {
+    if (requestedAvatarRefreshIdsRef.current.has(accountId)) {
+      return;
+    }
+
+    requestedAvatarRefreshIdsRef.current.add(accountId);
+    void refreshAccountProfile({ accountId }).catch(() => {
+      requestedAvatarRefreshIdsRef.current.delete(accountId);
+    });
+  };
 
   return (
     <>
@@ -138,6 +152,11 @@ export function DashboardSidebar({
                 username={accountContext.selectedAccount.username}
                 name={accountContext.selectedAccount.name}
                 profilePictureUrl={accountContext.selectedAccount.profilePictureUrl}
+                onImageError={() =>
+                  accountContext.selectedAccount
+                    ? requestAvatarRefresh(accountContext.selectedAccount.id)
+                    : undefined
+                }
               />
             ) : (
               <div className="flex size-10 items-center justify-center rounded-2xl border border-dashed border-border bg-muted/40">
@@ -217,6 +236,7 @@ export function DashboardSidebar({
                           name={account.name}
                           profilePictureUrl={account.profilePictureUrl}
                           size="sm"
+                          onImageError={() => requestAvatarRefresh(account.id)}
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
