@@ -109,6 +109,20 @@ export function InboxShell({
 
   const hasActiveFilters = unreadOnly || statusFilter !== "all";
 
+  const requestAvatarRefresh = (contactId: Id<"contacts">) => {
+    if (requestedRefreshIdsRef.current.has(contactId)) {
+      return;
+    }
+
+    requestedRefreshIdsRef.current.add(contactId);
+    void requestContactProfileRefresh({
+      accountId,
+      contactId,
+    }).catch(() => {
+      requestedRefreshIdsRef.current.delete(contactId);
+    });
+  };
+
   /* ── side effects (unchanged logic) ── */
 
   useEffect(() => {
@@ -313,6 +327,9 @@ export function InboxShell({
                           conversation.contact.profilePictureUrl
                         }
                         size="md"
+                        onImageError={() =>
+                          requestAvatarRefresh(conversation.contact.id)
+                        }
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-2">
@@ -403,6 +420,7 @@ export function InboxShell({
                       username={detail.contact.username}
                       profilePictureUrl={detail.contact.profilePictureUrl}
                       size="lg"
+                      onImageError={() => requestAvatarRefresh(detail.contact.id)}
                     />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
@@ -513,6 +531,9 @@ export function InboxShell({
                               }
                               size="sm"
                               className="mt-1 shrink-0"
+                              onImageError={() =>
+                                requestAvatarRefresh(detail.contact.id)
+                              }
                             />
                           )}
 

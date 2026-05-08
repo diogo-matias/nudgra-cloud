@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { useSearchParams } from "next/navigation";
@@ -14,6 +14,7 @@ import {
   Unplug,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { cn } from "@/lib/utils";
 import {
   AccountAvatar,
@@ -61,6 +62,7 @@ export default function AccountPage() {
   const searchParams = useSearchParams();
   const [search, setSearch] = useState("");
   const [refreshingIds, setRefreshingIds] = useState<Record<string, boolean>>({});
+  const requestedAvatarRefreshIdsRef = useRef(new Set<string>());
   const context = useQuery(api.accounts.getSelectedAccountContext);
   const list = useQuery(api.accounts.listWorkspaceAccounts, { search });
   const selectAccount = useMutation(api.accounts.selectAccount);
@@ -92,6 +94,28 @@ export default function AccountPage() {
         }
       : null,
   ].filter((banner): banner is { tone: "success" | "warning" | "error"; message: string } => banner !== null);
+
+  const requestAvatarRefresh = (accountId: Id<"instagramAccounts">) => {
+    if (requestedAvatarRefreshIdsRef.current.has(accountId)) {
+      return;
+    }
+
+    requestedAvatarRefreshIdsRef.current.add(accountId);
+    setRefreshingIds((current) => ({
+      ...current,
+      [accountId]: true,
+    }));
+    void refreshAccountProfile({ accountId })
+      .catch(() => {
+        requestedAvatarRefreshIdsRef.current.delete(accountId);
+      })
+      .finally(() => {
+        setRefreshingIds((current) => ({
+          ...current,
+          [accountId]: false,
+        }));
+      });
+  };
 
   return (
     <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
@@ -181,6 +205,7 @@ export default function AccountPage() {
                           name={account.name}
                           profilePictureUrl={account.profilePictureUrl}
                           size="md"
+                          onImageError={() => requestAvatarRefresh(account.id)}
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
@@ -302,6 +327,7 @@ export default function AccountPage() {
                     name={selectedAccount.name}
                     profilePictureUrl={selectedAccount.profilePictureUrl}
                     size="md"
+                    onImageError={() => requestAvatarRefresh(selectedAccount.id)}
                   />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-foreground">

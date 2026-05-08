@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 const sizeClassMap = {
@@ -70,15 +71,20 @@ export function ContactAvatar({
   profilePictureUrl,
   size = "md",
   className,
+  onImageError,
 }: {
   displayName: string | null;
   username: string | null;
   profilePictureUrl: string | null;
   size?: keyof typeof sizeClassMap;
   className?: string;
+  onImageError?: () => void;
 }) {
   const initials = getContactInitials(displayName, username);
   const label = getContactDisplayName(displayName, username);
+  const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
+  const shouldShowImage =
+    Boolean(profilePictureUrl) && failedImageUrl !== profilePictureUrl;
 
   return (
     <div
@@ -88,13 +94,17 @@ export function ContactAvatar({
         className,
       )}
     >
-      {profilePictureUrl ? (
+      {shouldShowImage ? (
         <Image
-          src={profilePictureUrl}
+          src={profilePictureUrl!}
           alt={label}
           fill
           sizes={`${pixelSizeMap[size]}px`}
           className="object-cover"
+          onError={() => {
+            setFailedImageUrl(profilePictureUrl ?? null);
+            onImageError?.();
+          }}
         />
       ) : (
         <div className="flex h-full w-full items-center justify-center text-[0.65rem] font-semibold tracking-wide">

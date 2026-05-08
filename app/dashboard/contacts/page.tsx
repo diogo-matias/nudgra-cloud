@@ -289,6 +289,23 @@ export default function ContactsPage() {
   const pageRequestKey = `${contactsScopeKey}:${
     activePaginationState.pageCursor ?? "first"
   }`;
+  const requestAvatarRefresh = (contactId: Id<"contacts">) => {
+    if (selectedAccount === null) {
+      return;
+    }
+
+    if (requestedRefreshIdsRef.current.has(contactId)) {
+      return;
+    }
+
+    requestedRefreshIdsRef.current.add(contactId);
+    void requestContactProfileRefresh({
+      accountId: selectedAccount.id,
+      contactId,
+    }).catch(() => {
+      requestedRefreshIdsRef.current.delete(contactId);
+    });
+  };
 
   useEffect(() => {
     dispatchPagination({ type: "reset", scopeKey: contactsScopeKey });
@@ -561,6 +578,7 @@ export default function ContactsPage() {
                               username={contact.username}
                               profilePictureUrl={contact.profilePictureUrl}
                               size="lg"
+                              onImageError={() => requestAvatarRefresh(contact.id)}
                             />
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold text-foreground">
