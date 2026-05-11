@@ -11,14 +11,22 @@ import {
 import { parseMetaApiError } from "./meta/authShared";
 import { getDeliveryKind } from "./meta/deliveryPolicy";
 
-const DELIVERY_ISSUE_STATUSES = new Set<Doc<"deliveryAttempts">["status"]>([
+const DELIVERY_ISSUE_STATUSES = [
   "failed",
   "blocked_auth",
   "skipped",
   "skipped_expired",
-]);
+] as const satisfies readonly Doc<"deliveryAttempts">["status"][];
+
+const DELIVERY_ISSUE_STATUS_SET = new Set<Doc<"deliveryAttempts">["status"]>(
+  DELIVERY_ISSUE_STATUSES,
+);
 
 type DashboardLogStatus = Doc<"deliveryAttempts">["status"] | "received";
+
+function isDeliveryIssueStatus(status: DashboardLogStatus) {
+  return status !== "received" && DELIVERY_ISSUE_STATUS_SET.has(status);
+}
 
 async function summarizeByInstagramAccount<
   T extends { instagramAccountId: Doc<"instagramAccounts">["_id"] },
@@ -235,7 +243,7 @@ export const getOverview = query({
                   .eq("instagramAccountId", selectedAccountId)
                   .gte("eventTime", failureThreshold),
               ),
-            (delivery) => DELIVERY_ISSUE_STATUSES.has(delivery.status),
+            (delivery) => DELIVERY_ISSUE_STATUS_SET.has(delivery.status),
           ),
     ]);
 
@@ -436,6 +444,28 @@ export const listLogs = query({
       )
       .order("desc")
       .take(50);
+    const issueDeliveriesByStatus = await Promise.all(
+      DELIVERY_ISSUE_STATUSES.map((status) =>
+        ctx.db
+          .query("deliveryAttempts")
+          .withIndex("by_instagram_account_id_and_status_and_event_time", (q) =>
+            q.eq("instagramAccountId", args.accountId).eq("status", status),
+          )
+          .order("desc")
+          .take(50),
+      ),
+    );
+    const deliveryIds = new Set(deliveries.map((delivery) => delivery._id));
+    const issueDeliveries = issueDeliveriesByStatus
+      .flat()
+      .filter((delivery) => {
+        if (deliveryIds.has(delivery._id)) {
+          return false;
+        }
+        deliveryIds.add(delivery._id);
+        return true;
+      });
+    const deliveriesForLogs = [...deliveries, ...issueDeliveries];
     const webhooks = await ctx.db
       .query("webhookEvents")
       .withIndex("by_instagram_account_id_and_received_at", (q) =>
@@ -474,7 +504,7 @@ export const listLogs = query({
       } | null;
       rawPayload: string | null;
     }> = [];
-    for (const delivery of deliveries) {
+    for (const delivery of deliveriesForLogs) {
       const contact = await ctx.db.get(delivery.contactId);
       const rule = delivery.automationRuleId
         ? await ctx.db.get(delivery.automationRuleId)
@@ -579,7 +609,18 @@ export const listLogs = query({
     }
 
     entries.sort((a, b) => b.time - a.time);
-    return entries.slice(0, 100);
+    const recentEntries = entries.slice(0, 100);
+    const recentEntryIds = new Set(recentEntries.map((entry) => entry.id));
+    const preservedIssueEntries = entries
+      .filter(
+        (entry) =>
+          isDeliveryIssueStatus(entry.status) && !recentEntryIds.has(entry.id),
+      )
+      .slice(0, 50);
+
+    return [...recentEntries, ...preservedIssueEntries].sort(
+      (a, b) => b.time - a.time,
+    );
   },
 });
 

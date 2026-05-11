@@ -528,4 +528,54 @@ describe("dashboard", () => {
     expect(logs[0]?.details).toContain("permission");
     expect(logs[0]?.rawPayload).toContain('"error_subcode":2534015');
   });
+
+  it("keeps issue delivery attempts visible when newer deliveries fill the recent log window", async () => {
+    const t = convexTest({ schema, modules });
+    const fixture = await seedWorkspace(t);
+    const authT = t.withIdentity({ subject: fixture.userId });
+
+    const connected = await connectAccount(t, fixture, {
+      state: "dashboard-log-window",
+      externalId: "ig_dashboard_log_window",
+      username: "account_log_window",
+    });
+    const thread = await seedThread(t, {
+      workspaceId: fixture.workspaceId,
+      instagramAccountId: connected.accountId,
+      instagramAccountExternalId: "ig_dashboard_log_window",
+      suffix: "window",
+    });
+
+    await seedDeliveryAttempt(t, {
+      workspaceId: fixture.workspaceId,
+      instagramAccountId: connected.accountId,
+      contactId: thread.contactId,
+      conversationId: thread.conversationId,
+      status: "failed",
+      messageText: "This older failure should stay inspectable",
+      reason: "Meta rejected the message.",
+      eventTime: BASE_TIME,
+    });
+
+    for (let index = 1; index <= 55; index += 1) {
+      await seedDeliveryAttempt(t, {
+        workspaceId: fixture.workspaceId,
+        instagramAccountId: connected.accountId,
+        contactId: thread.contactId,
+        conversationId: thread.conversationId,
+        status: "sent",
+        messageText: `Successful reply ${index}`,
+        eventTime: BASE_TIME + index,
+      });
+    }
+
+    const logs = await authT.query(api.dashboard.listLogs, {
+      accountId: connected.accountId,
+    });
+
+    expect(logs.some((log) => log.status === "failed")).toBe(true);
+    expect(logs.find((log) => log.status === "failed")?.details).toContain(
+      "Meta rejected the message.",
+    );
+  });
 });
