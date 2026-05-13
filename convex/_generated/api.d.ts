@@ -33,6 +33,7 @@ import type * as dashboard from "../dashboard.js";
 import type * as http from "../http.js";
 import type * as inbox from "../inbox.js";
 import type * as lib_auth from "../lib/auth.js";
+import type * as lib_operatorAccess from "../lib/operatorAccess.js";
 import type * as lib_readModels from "../lib/readModels.js";
 import type * as meta_authShared from "../meta/authShared.js";
 import type * as meta_commentWebhooks from "../meta/commentWebhooks.js";
@@ -87,6 +88,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   inbox: typeof inbox;
   "lib/auth": typeof lib_auth;
+  "lib/operatorAccess": typeof lib_operatorAccess;
   "lib/readModels": typeof lib_readModels;
   "meta/authShared": typeof meta_authShared;
   "meta/commentWebhooks": typeof meta_commentWebhooks;

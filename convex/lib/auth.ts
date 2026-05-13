@@ -1,6 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { Doc, Id } from "../_generated/dataModel";
 import { MutationCtx, QueryCtx } from "../_generated/server";
+import { requireAllowedOperatorUserId } from "./operatorAccess";
 
 type DbCtx = QueryCtx | MutationCtx;
 
@@ -53,6 +54,7 @@ export async function requireCurrentUserId(ctx: DbCtx): Promise<Id<"users">> {
   if (userId === null) {
     throw new Error("You must be signed in to access this workspace.");
   }
+  await requireAllowedOperatorUserId(ctx, userId);
   return userId;
 }
 
@@ -63,6 +65,7 @@ export async function getCurrentWorkspace(
   if (userId === null) {
     return null;
   }
+  await requireAllowedOperatorUserId(ctx, userId);
   return await ctx.db
     .query("workspaces")
     .withIndex("by_owner_user_id", (q) => q.eq("ownerUserId", userId))
@@ -156,6 +159,7 @@ export async function getSelectedWorkspaceInstagramAccount(
   if (userId === null) {
     return null;
   }
+  await requireAllowedOperatorUserId(ctx, userId);
 
   const [preference, accounts] = await Promise.all([
     getWorkspaceUserPreference(ctx, workspaceId, userId),
