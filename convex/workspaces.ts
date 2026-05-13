@@ -4,6 +4,8 @@ import {
   getWorkspaceUserPreference,
   requireCurrentUserId,
 } from "./lib/auth";
+import { getOperatorAccessForUserId } from "./lib/operatorAccess";
+import { getAuthUserId } from "@convex-dev/auth/server";
 
 const DEFAULT_TAGS = [
   { label: "new", color: "slate" },
@@ -94,6 +96,27 @@ export const getCurrentWorkspaceSummary = query({
       id: workspace._id,
       name: workspace.name,
       timezone: workspace.timezone,
+    };
+  },
+});
+
+export const getOperatorAccessStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) {
+      return {
+        isAuthenticated: false,
+        isAllowed: false,
+        email: null,
+      };
+    }
+
+    const access = await getOperatorAccessForUserId(ctx, userId);
+    return {
+      isAuthenticated: true,
+      isAllowed: access.allowed,
+      email: access.email,
     };
   },
 });
