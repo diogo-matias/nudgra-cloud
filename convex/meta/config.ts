@@ -10,7 +10,6 @@ export const META_WEBHOOK_SUBSCRIBED_FIELDS = [
   "messages",
   "messaging_postbacks",
   "comments",
-  "followers",
 ];
 
 export function getMetaWebhookSubscribedFields() {

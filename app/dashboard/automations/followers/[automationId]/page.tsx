@@ -78,7 +78,8 @@ export default function FollowerAutomationDetailPage() {
     linkButtons,
     followUpEnabled,
   });
-  const canGoLive = validationIssues.length === 0;
+  const canGoLive =
+    validationIssues.length === 0 && automation?.canGoLive === true;
 
   async function handleSave() {
     if (
@@ -227,6 +228,11 @@ export default function FollowerAutomationDetailPage() {
                   })
                 }
                 disabled={automation.status !== "live" && !canGoLive}
+                title={
+                  automation.status !== "live" && automation.unsupportedReason
+                    ? automation.unsupportedReason
+                    : undefined
+                }
                 className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {automation.status === "live" ? (
@@ -258,6 +264,12 @@ export default function FollowerAutomationDetailPage() {
             </div>
           </div>
         </div>
+
+        {automation.unsupportedReason ? (
+          <div className="border-b border-amber-200 bg-amber-50 px-8 py-3 text-sm text-amber-900">
+            {automation.unsupportedReason}
+          </div>
+        ) : null}
 
         <FollowerAutomationForm
           name={name}

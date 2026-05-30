@@ -52,9 +52,18 @@ export default function NewFollowerAutomationPage() {
   });
   const isValid =
     validationIssues.length === 0 && Boolean(options?.hasConnectedAccount);
+  const canGoLive = isValid && Boolean(options?.isRealtimeTriggerSupported);
 
   async function handleSubmit(goLive: boolean) {
     if (!selectedAccount || !isValid || isSubmitting) {
+      return;
+    }
+
+    if (goLive && !canGoLive) {
+      setSubmissionError(
+        options?.unsupportedReason ??
+          "Follower automations cannot be set live.",
+      );
       return;
     }
 
@@ -131,7 +140,7 @@ export default function NewFollowerAutomationPage() {
             </button>
             <button
               type="button"
-              disabled={!isValid || isSubmitting}
+              disabled={!canGoLive || isSubmitting}
               onClick={() => void handleSubmit(true)}
               className="inline-flex items-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -144,6 +153,12 @@ export default function NewFollowerAutomationPage() {
       {!options?.hasConnectedAccount ? (
         <div className="border-b border-amber-200 bg-amber-50 px-8 py-3 text-sm text-amber-900">
           Connect an Instagram account before creating follower automations.
+        </div>
+      ) : null}
+
+      {options?.unsupportedReason ? (
+        <div className="border-b border-amber-200 bg-amber-50 px-8 py-3 text-sm text-amber-900">
+          {options.unsupportedReason}
         </div>
       ) : null}
 

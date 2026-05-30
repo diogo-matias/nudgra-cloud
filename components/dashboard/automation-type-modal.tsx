@@ -16,6 +16,7 @@ type AutomationType = {
   icon: React.ComponentType<{ className?: string }>;
   href: string;
   available: boolean;
+  unavailableLabel?: string;
 };
 
 const AUTOMATION_TYPES: AutomationType[] = [
@@ -50,10 +51,11 @@ const AUTOMATION_TYPES: AutomationType[] = [
     id: "follower-welcome",
     title: "When someone follows you",
     description:
-      "Welcome new followers with an automated DM, optional tracked links, email capture, and re-engagement follow-ups.",
+      "Meta's public Instagram API does not deliver new-follower webhook events, so this trigger cannot run reliably.",
     icon: UserPlus,
     href: "/dashboard/automations/followers/new",
-    available: true,
+    available: false,
+    unavailableLabel: "Unavailable",
   },
 ];
 
@@ -113,6 +115,11 @@ export function AutomationTypeModal({
                     <p className="text-sm font-semibold text-foreground">
                       {type.title}
                     </p>
+                    {!type.available && type.unavailableLabel ? (
+                      <span className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                        {type.unavailableLabel}
+                      </span>
+                    ) : null}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                     {type.description}

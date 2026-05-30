@@ -257,15 +257,16 @@ export default function AutomationsPage() {
                         storyAutomations.length +
                         followerAutomations.length +
                         rules.length -
-                        1 &&
-                      "border-b border-border",
+                        1 && "border-b border-border",
                   )}
                 >
                   <div className="flex min-w-0 items-start gap-3">
                     <div
                       className={cn(
                         "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg",
-                        automation.status === "live" ? "bg-primary/10" : "bg-muted",
+                        automation.status === "live"
+                          ? "bg-primary/10"
+                          : "bg-muted",
                       )}
                     >
                       <MessageSquare
@@ -369,8 +370,8 @@ export default function AutomationsPage() {
                       title={
                         automation.status !== "live" &&
                         automation.validationIssues.length > 0
-                          ? automation.validationIssues[0] ??
-                            "Automation must be fixed before going live."
+                          ? (automation.validationIssues[0] ??
+                            "Automation must be fixed before going live.")
                           : automation.status === "live"
                             ? "Pause automation"
                             : "Go live"
@@ -380,7 +381,8 @@ export default function AutomationsPage() {
                         void toggleCommentAutomation({
                           accountId: selectedAccount.id,
                           automationId: automation.id,
-                          status: automation.status === "live" ? "paused" : "live",
+                          status:
+                            automation.status === "live" ? "paused" : "live",
                         });
                       }}
                       className={iconButtonClassName}
@@ -431,15 +433,16 @@ export default function AutomationsPage() {
                       storyAutomations.length +
                         followerAutomations.length +
                         rules.length -
-                        1 &&
-                      "border-b border-border",
+                        1 && "border-b border-border",
                   )}
                 >
                   <div className="flex min-w-0 items-start gap-3">
                     <div
                       className={cn(
                         "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg",
-                        automation.status === "live" ? "bg-primary/10" : "bg-muted",
+                        automation.status === "live"
+                          ? "bg-primary/10"
+                          : "bg-muted",
                       )}
                     >
                       <BookOpen
@@ -544,8 +547,8 @@ export default function AutomationsPage() {
                       title={
                         automation.status !== "live" &&
                         automation.validationIssues.length > 0
-                          ? automation.validationIssues[0] ??
-                            "Automation must be fixed before going live."
+                          ? (automation.validationIssues[0] ??
+                            "Automation must be fixed before going live.")
                           : automation.status === "live"
                             ? "Pause automation"
                             : "Go live"
@@ -555,7 +558,8 @@ export default function AutomationsPage() {
                         void toggleStoryAutomation({
                           accountId: selectedAccount.id,
                           automationId: automation.id,
-                          status: automation.status === "live" ? "paused" : "live",
+                          status:
+                            automation.status === "live" ? "paused" : "live",
                         });
                       }}
                       className={iconButtonClassName}
@@ -610,7 +614,9 @@ export default function AutomationsPage() {
                     <div
                       className={cn(
                         "mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg",
-                        automation.status === "live" ? "bg-primary/10" : "bg-muted",
+                        automation.status === "live"
+                          ? "bg-primary/10"
+                          : "bg-muted",
                       )}
                     >
                       <UserPlus
@@ -652,6 +658,12 @@ export default function AutomationsPage() {
                             Needs fix
                           </span>
                         ) : null}
+                        {automation.unsupportedReason ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                            <AlertTriangle className="size-3" />
+                            Unavailable
+                          </span>
+                        ) : null}
                         {automation.guardrailTrippedAt ? (
                           <span className="inline-flex items-center gap-1 rounded-full border border-destructive/20 bg-destructive/5 px-2 py-0.5 text-[10px] font-medium text-destructive">
                             <AlertTriangle className="size-3" />
@@ -660,8 +672,8 @@ export default function AutomationsPage() {
                         ) : null}
                       </div>
                       <p className="max-w-md truncate text-xs text-muted-foreground">
-                        Sends a welcome DM when Meta delivers a new follower
-                        event
+                        {automation.unsupportedReason ??
+                          "Sends a welcome DM when Meta delivers a new follower event"}
                         {automation.linkButtons.length > 0
                           ? ` · ${automation.linkButtons.length} tracked link${automation.linkButtons.length !== 1 ? "s" : ""}`
                           : ""}
@@ -698,23 +710,28 @@ export default function AutomationsPage() {
                       type="button"
                       disabled={
                         automation.status !== "live" &&
-                        automation.validationIssues.length > 0
+                        (!automation.canGoLive ||
+                          automation.validationIssues.length > 0)
                       }
                       title={
                         automation.status !== "live" &&
-                        automation.validationIssues.length > 0
-                          ? automation.validationIssues[0] ??
-                            "Automation must be fixed before going live."
-                          : automation.status === "live"
-                            ? "Pause automation"
-                            : "Go live"
+                        automation.unsupportedReason
+                          ? automation.unsupportedReason
+                          : automation.status !== "live" &&
+                              automation.validationIssues.length > 0
+                            ? (automation.validationIssues[0] ??
+                              "Automation must be fixed before going live.")
+                            : automation.status === "live"
+                              ? "Pause automation"
+                              : "Go live"
                       }
                       onClick={(event) => {
                         preventRowNavigation(event);
                         void toggleFollowerAutomation({
                           accountId: selectedAccount.id,
                           automationId: automation.id,
-                          status: automation.status === "live" ? "paused" : "live",
+                          status:
+                            automation.status === "live" ? "paused" : "live",
                         });
                       }}
                       className={iconButtonClassName}
@@ -765,7 +782,9 @@ export default function AutomationsPage() {
                     <Zap
                       className={cn(
                         "size-4",
-                        rule.isActive ? "text-primary" : "text-muted-foreground",
+                        rule.isActive
+                          ? "text-primary"
+                          : "text-muted-foreground",
                       )}
                     />
                   </div>
@@ -797,14 +816,14 @@ export default function AutomationsPage() {
                           ? `Keyword trigger: ${rule.keywords
                               .slice(0, 3)
                               .map((keyword) => `"${keyword}"`)
-                              .join(", ")}${rule.keywords.length > 3 ? ` +${rule.keywords.length - 3}` : ""}`
+                              .join(
+                                ", ",
+                              )}${rule.keywords.length > 3 ? ` +${rule.keywords.length - 3}` : ""}`
                           : `Trigger: ${rule.triggerType.replace("_", " ")}`}
                       {" \u00B7 "}DM: &quot;
-                      {(
-                        rule.linkDmText.length > 50
-                          ? `${rule.linkDmText.slice(0, 50)}...`
-                          : rule.linkDmText
-                      ) || "No message"}
+                      {(rule.linkDmText.length > 50
+                        ? `${rule.linkDmText.slice(0, 50)}...`
+                        : rule.linkDmText) || "No message"}
                       &quot;
                     </p>
                     <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground sm:hidden">

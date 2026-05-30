@@ -91,8 +91,9 @@ export function FollowerAutomationForm(props: FollowerAutomationFormProps) {
                 Send a welcome DM
               </p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Runs from Meta follower webhook events only. It does not use DM,
-                comment, or story reply fallback triggers.
+                Meta does not currently provide a public new-follower webhook
+                trigger. Use comment, story reply, or keyword DM automations for
+                live workflows.
               </p>
             </div>
           </section>
