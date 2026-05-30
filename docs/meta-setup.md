@@ -60,6 +60,10 @@ Meta's webhook delivery also has two separate requirements:
 After account connection, Nudgra also attempts to subscribe the connected Instagram account to the app's webhook delivery through the Graph API.
 The account-level subscription requests `messages`, `messaging_postbacks`, and `comments` so comment-triggered private replies can open the normal 24-hour DM window after a tap or reply.
 
+Meta's public Instagram webhook fields do not include a new-follower trigger.
+Unfollowing and following a test account will not produce a webhook that Nudgra
+can use for a welcome DM.
+
 Important: a "Connected" account in Nudgra only confirms OAuth/token storage and
 that the app attempted the account-level `subscribed_apps` call. It does not
 guarantee that the app-level webhook callback is configured correctly.

@@ -23,6 +23,9 @@ const nullableSequenceDefinitionId = v.union(
 
 type LatestFollowerSession = Doc<"followerAutomationSessions"> | null;
 
+const FOLLOWER_AUTOMATION_UNSUPPORTED_MESSAGE =
+  "Instagram does not expose a public new-follower webhook trigger, so follower welcome automations cannot be set live. Use a comment, story reply, or keyword DM automation instead.";
+
 function getSerializedLinkButtons(automation: Doc<"followerAutomations">) {
   if (automation.linkButtons && automation.linkButtons.length > 0) {
     return automation.linkButtons;
@@ -93,10 +96,10 @@ function serializeFollowerAutomation(
         ? {
             id: automation.sequenceDefinitionId,
             name: sequencesById.get(automation.sequenceDefinitionId)!.name,
-            isActive:
-              sequencesById.get(automation.sequenceDefinitionId)!.isActive,
-            stepCount:
-              sequencesById.get(automation.sequenceDefinitionId)!.steps.length,
+            isActive: sequencesById.get(automation.sequenceDefinitionId)!
+              .isActive,
+            stepCount: sequencesById.get(automation.sequenceDefinitionId)!.steps
+              .length,
           }
         : null,
     sequenceDefinitionId: automation.sequenceDefinitionId,
@@ -104,6 +107,8 @@ function serializeFollowerAutomation(
     guardrailReason: automation.guardrailReason ?? null,
     guardrailSessionId: automation.guardrailSessionId ?? null,
     guardrailConversationId: automation.guardrailConversationId ?? null,
+    canGoLive: false,
+    unsupportedReason: FOLLOWER_AUTOMATION_UNSUPPORTED_MESSAGE,
     validationIssues: getFollowerAutomationValidationIssues({
       ...automation,
       linkButtons,
@@ -159,7 +164,9 @@ async function validateFollowerRelations(
   if (args.sequenceDefinitionId !== null) {
     const sequence = await ctx.db.get(args.sequenceDefinitionId);
     if (sequence === null || sequence.workspaceId !== args.workspaceId) {
-      throw new Error("The selected sequence does not belong to this workspace.");
+      throw new Error(
+        "The selected sequence does not belong to this workspace.",
+      );
     }
   }
 }
@@ -198,9 +205,7 @@ function isTerminalFollowerSession(
   step: Doc<"followerAutomationSessions">["currentStep"],
 ) {
   return (
-    step === "completed" ||
-    step === "link_sent" ||
-    step === "guardrail_tripped"
+    step === "completed" || step === "link_sent" || step === "guardrail_tripped"
   );
 }
 
@@ -308,7 +313,10 @@ export const getFollowerAutomationCreationOptions = query({
     ]);
 
     return {
-      hasConnectedAccount: account !== null && account.status !== "disconnected",
+      hasConnectedAccount:
+        account !== null && account.status !== "disconnected",
+      isRealtimeTriggerSupported: false,
+      unsupportedReason: FOLLOWER_AUTOMATION_UNSUPPORTED_MESSAGE,
       tags: tags.map((tag) => ({
         id: tag._id,
         label: tag.label,
@@ -393,6 +401,10 @@ export const createFollowerAutomation = mutation({
       throw new Error("Automation name is required.");
     }
 
+    if (args.goLive) {
+      throw new Error(FOLLOWER_AUTOMATION_UNSUPPORTED_MESSAGE);
+    }
+
     await validateFollowerRelations(ctx, {
       workspaceId: workspace._id,
       tagIds: [...new Set(args.tagIds)],
@@ -401,9 +413,7 @@ export const createFollowerAutomation = mutation({
 
     const normalized = normalizeFollowerAutomationInput(args);
     const now = Date.now();
-    const status: Doc<"followerAutomations">["status"] = args.goLive
-      ? "live"
-      : "draft";
+    const status: Doc<"followerAutomations">["status"] = "draft";
 
     const automationId = await ctx.db.insert("followerAutomations", {
       workspaceId: workspace._id,
@@ -415,7 +425,8 @@ export const createFollowerAutomation = mutation({
       emailCollectionEnabled: args.emailCollectionEnabled,
       emailCollectionText: args.emailCollectionText.trim(),
       linkDmText: args.linkDmText.trim(),
-      linkUrl: normalized.primaryLink?.url ?? normalizeAbsoluteUrl(args.linkUrl),
+      linkUrl:
+        normalized.primaryLink?.url ?? normalizeAbsoluteUrl(args.linkUrl),
       linkButtonText:
         normalized.primaryLink?.label ||
         args.linkButtonText.trim() ||
@@ -489,7 +500,8 @@ export const updateFollowerAutomation = mutation({
       emailCollectionEnabled: args.emailCollectionEnabled,
       emailCollectionText: args.emailCollectionText.trim(),
       linkDmText: args.linkDmText.trim(),
-      linkUrl: normalized.primaryLink?.url ?? normalizeAbsoluteUrl(args.linkUrl),
+      linkUrl:
+        normalized.primaryLink?.url ?? normalizeAbsoluteUrl(args.linkUrl),
       linkButtonText:
         normalized.primaryLink?.label ||
         args.linkButtonText.trim() ||
@@ -502,11 +514,22 @@ export const updateFollowerAutomation = mutation({
       followUpText: args.followUpText.trim(),
       tagIds: [...new Set(args.tagIds)],
       sequenceDefinitionId: args.sequenceDefinitionId,
-      guardrailTrippedAt: automation.status === "live" ? null : automation.guardrailTrippedAt ?? null,
-      guardrailReason: automation.status === "live" ? null : automation.guardrailReason ?? null,
-      guardrailSessionId: automation.status === "live" ? null : automation.guardrailSessionId ?? null,
+      guardrailTrippedAt:
+        automation.status === "live"
+          ? null
+          : (automation.guardrailTrippedAt ?? null),
+      guardrailReason:
+        automation.status === "live"
+          ? null
+          : (automation.guardrailReason ?? null),
+      guardrailSessionId:
+        automation.status === "live"
+          ? null
+          : (automation.guardrailSessionId ?? null),
       guardrailConversationId:
-        automation.status === "live" ? null : automation.guardrailConversationId ?? null,
+        automation.status === "live"
+          ? null
+          : (automation.guardrailConversationId ?? null),
       lastModifiedAt: Date.now(),
     });
 
@@ -534,27 +557,15 @@ export const toggleFollowerAutomation = mutation({
     }
 
     if (args.status === "live") {
-      const issues = getFollowerAutomationValidationIssues({
-        ...automation,
-        linkButtons: getSerializedLinkButtons(automation),
-      });
-      if (issues.length > 0) {
-        throw new Error(issues[0] ?? "Automation must be fixed before going live.");
-      }
+      throw new Error(FOLLOWER_AUTOMATION_UNSUPPORTED_MESSAGE);
     }
 
     await ctx.db.patch(automation._id, {
       status: args.status,
-      guardrailTrippedAt:
-        args.status === "live" ? null : (automation.guardrailTrippedAt ?? null),
-      guardrailReason:
-        args.status === "live" ? null : (automation.guardrailReason ?? null),
-      guardrailSessionId:
-        args.status === "live" ? null : (automation.guardrailSessionId ?? null),
-      guardrailConversationId:
-        args.status === "live"
-          ? null
-          : (automation.guardrailConversationId ?? null),
+      guardrailTrippedAt: automation.guardrailTrippedAt ?? null,
+      guardrailReason: automation.guardrailReason ?? null,
+      guardrailSessionId: automation.guardrailSessionId ?? null,
+      guardrailConversationId: automation.guardrailConversationId ?? null,
       lastModifiedAt: Date.now(),
     });
 

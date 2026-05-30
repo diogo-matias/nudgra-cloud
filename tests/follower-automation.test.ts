@@ -119,7 +119,7 @@ describe("follower automations", () => {
     delete process.env.SITE_URL;
   });
 
-  it("creates, lists, toggles, validates, and deletes follower automations", async () => {
+  it("creates, lists, blocks live toggles, validates, and deletes follower automations", async () => {
     const t = convexTest({ schema, modules });
     const fixture = await seedWorkspace(t);
     const tagId = await insertTag(t, fixture, "new follower");
@@ -134,6 +134,8 @@ describe("follower automations", () => {
     expect(options.sequences.map((sequence) => sequence.name)).toEqual([
       "Follower nurture",
     ]);
+    expect(options.isRealtimeTriggerSupported).toBe(false);
+    expect(options.unsupportedReason).toContain("new-follower webhook");
 
     await expect(
       authT.mutation(
@@ -145,12 +147,24 @@ describe("follower automations", () => {
             linkUrl: "",
             linkDmText: "",
             followUpEnabled: true,
-            goLive: true,
+            goLive: false,
           }),
           accountId: fixture.instagramAccountId,
         },
       ),
     ).rejects.toThrow("Follow-up requires at least one tracked link button.");
+
+    await expect(
+      authT.mutation(
+        api.automations.followerAutomations.createFollowerAutomation,
+        {
+          ...buildCreateArgs({
+            goLive: true,
+          }),
+          accountId: fixture.instagramAccountId,
+        },
+      ),
+    ).rejects.toThrow("new-follower webhook");
 
     const createResult = await authT.mutation(
       api.automations.followerAutomations.createFollowerAutomation,
@@ -173,6 +187,8 @@ describe("follower automations", () => {
       },
     );
     expect(automation?.status).toBe("draft");
+    expect(automation?.canGoLive).toBe(false);
+    expect(automation?.unsupportedReason).toContain("new-follower webhook");
     expect(automation?.validationIssues).toEqual([]);
     expect(automation?.tags.map((tag) => tag.label)).toEqual(["new follower"]);
     expect(automation?.sequence?.name).toBe("Follower nurture");
@@ -193,14 +209,16 @@ describe("follower automations", () => {
         automationId: createResult.automationId,
       },
     );
-    await authT.mutation(
-      api.automations.followerAutomations.toggleFollowerAutomation,
-      {
-        accountId: fixture.instagramAccountId,
-        automationId: createResult.automationId,
-        status: "live",
-      },
-    );
+    await expect(
+      authT.mutation(
+        api.automations.followerAutomations.toggleFollowerAutomation,
+        {
+          accountId: fixture.instagramAccountId,
+          automationId: createResult.automationId,
+          status: "live",
+        },
+      ),
+    ).rejects.toThrow("new-follower webhook");
 
     automation = await authT.query(
       api.automations.followerAutomations.getFollowerAutomationById,
@@ -210,7 +228,7 @@ describe("follower automations", () => {
       },
     );
     expect(automation?.name).toBe("Follower welcome edited");
-    expect(automation?.status).toBe("live");
+    expect(automation?.status).toBe("draft");
 
     const listed = await authT.query(
       api.automations.followerAutomations.listFollowerAutomations,
@@ -258,11 +276,15 @@ describe("follower automations", () => {
           tagIds: [tagId],
           sequenceDefinitionId: sequenceId,
           followUpEnabled: true,
-          goLive: true,
+          goLive: false,
         }),
         accountId: fixture.instagramAccountId,
       },
     );
+
+    await t.run(async (ctx) => {
+      await ctx.db.patch(createResult.automationId, { status: "live" });
+    });
 
     const firstResult = await t.mutation(
       internal.meta.followerWebhooks.processFollowerEvent,
@@ -295,7 +317,9 @@ describe("follower automations", () => {
     const stored = await t.run(async (ctx) => {
       const contacts = await ctx.db.query("contacts").collect();
       const conversations = await ctx.db.query("conversations").collect();
-      const sessions = await ctx.db.query("followerAutomationSessions").collect();
+      const sessions = await ctx.db
+        .query("followerAutomationSessions")
+        .collect();
       const attempts = await ctx.db.query("deliveryAttempts").collect();
       const trackedLinks = await ctx.db
         .query("followerAutomationTrackedLinks")
