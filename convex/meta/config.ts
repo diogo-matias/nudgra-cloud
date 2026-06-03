@@ -31,10 +31,14 @@ export function requireMetaEnv() {
 }
 
 export function requireSiteUrl() {
-  const siteUrl = process.env.SITE_URL;
+  const siteUrl = process.env.SITE_URL?.trim();
   if (!siteUrl) {
     throw new Error("Missing SITE_URL. Configure SITE_URL for tracked links.");
   }
+  const parsed = new URL(siteUrl);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("SITE_URL must use http or https.");
+  }
 
-  return siteUrl;
+  return parsed.origin;
 }

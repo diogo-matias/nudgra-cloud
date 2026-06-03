@@ -651,12 +651,27 @@ export const emergencyReconnectAccount = internalMutation({
 });
 
 export const getConnectSessionByState = internalQuery({
-  args: { state: v.string() },
+  args: { state: v.string(), redirectUri: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const userId = await requireCurrentUserId(ctx);
+    const workspace = await requireCurrentWorkspace(ctx);
+    const session = await ctx.db
       .query("instagramConnectSessions")
       .withIndex("by_state", (q) => q.eq("state", args.state))
       .unique();
+
+    if (
+      session === null ||
+      session.createdByUserId !== userId ||
+      session.workspaceId !== workspace._id ||
+      session.status !== "pending" ||
+      session.expiresAt < Date.now() ||
+      session.redirectUri !== args.redirectUri
+    ) {
+      return null;
+    }
+
+    return session;
   },
 });
 
@@ -697,6 +712,9 @@ export const upsertConnectedAccount = internalMutation({
 
     if (session === null) {
       throw new Error("Connection session not found.");
+    }
+    if (session.status !== "pending" || session.expiresAt < Date.now()) {
+      throw new Error("Connection session is not pending.");
     }
 
     const existingAccount = await getWorkspaceInstagramAccountByExternalId(

@@ -258,10 +258,11 @@ export const exchangeCodeForAccount = action({
       internal.accounts.getConnectSessionByState,
       {
         state: args.state,
+        redirectUri: args.redirectUri,
       },
     );
 
-    if (session === null || session.expiresAt < Date.now()) {
+    if (session === null) {
       throw new Error(
         "This Instagram connection session is invalid or expired.",
       );

@@ -13,9 +13,17 @@ export function isMetaConfigured() {
 }
 
 export function getSiteUrl(request: Request) {
-  const siteUrl = process.env.SITE_URL;
+  const siteUrl = process.env.SITE_URL?.trim();
   if (siteUrl) {
-    return siteUrl;
+    const parsed = new URL(siteUrl);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("SITE_URL must use http or https.");
+    }
+    return parsed.origin;
+  }
+
+  if (process.env.NODE_ENV !== "development" && process.env.NODE_ENV !== "test") {
+    throw new Error("SITE_URL is required outside local development.");
   }
 
   return new URL(request.url).origin;
