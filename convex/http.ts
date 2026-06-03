@@ -3,6 +3,7 @@ import { httpAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { auth } from "./auth";
 import { requireMetaEnv } from "./meta/config";
+import { verifyMetaWebhookSignature } from "./meta/webhookSignature";
 
 const http = httpRouter();
 
@@ -30,7 +31,18 @@ http.route({
   path: "/meta/webhooks",
   method: "POST",
   handler: httpAction(async (ctx, request) => {
+    const { appSecret } = requireMetaEnv();
     const body = await request.text();
+    const signatureHeader = request.headers.get("x-hub-signature-256");
+
+    const signatureValid = await verifyMetaWebhookSignature({
+      body,
+      appSecret,
+      signatureHeader,
+    });
+    if (!signatureValid) {
+      return new Response("Invalid webhook signature", { status: 403 });
+    }
 
     // Route based on webhook object type
     let isCommentWebhook = false;
