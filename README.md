@@ -1,32 +1,116 @@
-# Nudgra Cloud
+<div align="center">
 
-Nudgra Cloud is an open alternative to ManyChat for the basic Instagram automations most users actually need: keyword DMs, comment replies, story replies, simple follow-ups, contacts, conversations, and logs.
+<img src=".github/banner.png" alt="Nudgra Cloud — own your Instagram automation" width="100%" />
 
-This version uses Next.js for the dashboard and Convex Cloud for backend state, auth, scheduling, and Meta webhooks.
+<br />
+<br />
 
-If you want to run the database and backend yourself, use Nudgra OSS instead: `TODO: add Nudgra OSS repo URL`.
+[![License: MIT](https://img.shields.io/badge/License-MIT-2563eb?style=flat-square)](./LICENSE)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Next.js 16](https://img.shields.io/badge/Next.js_16-000000?style=flat-square&logo=nextdotjs&logoColor=white)](https://nextjs.org/)
+[![React 19](https://img.shields.io/badge/React_19-149ECA?style=flat-square&logo=react&logoColor=white)](https://react.dev/)
+[![Convex](https://img.shields.io/badge/Convex-EE342F?style=flat-square&logo=convex&logoColor=white)](https://www.convex.dev/)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-22c55e?style=flat-square)](./CONTRIBUTING.md)
 
-If you run into setup issues, send a DM to [@Maikoke5](https://x.com/Maikoke5).
+**The open-source alternative to ManyChat for Instagram — on a hosted Next.js + Convex stack.**
 
-You can also give this README to a coding agent such as Codex, Claude Code, Cursor, or another assistant and ask it to walk you through the setup step by step. That works especially well for Convex environment variables, Google OAuth, Meta dashboard setup, and deployment logs.
+Automate comment replies, story-reply funnels, and keyword DMs from a dashboard you own. Deploy your own in minutes, no SaaS fees.
 
-## Stack
+<br />
 
-- Next.js 16
-- React 19
-- Convex
-- Convex Auth
-- Tailwind CSS 4
-- `shadcn` UI components
+[![Watch the demo](https://img.shields.io/badge/%E2%96%B6%20%20Watch%20the%20demo-2563EB?style=for-the-badge)](https://pub-7d8033dde9294375a68da6fd9ac0be32.r2.dev/nudgra/nudgra-demo.mp4)
+&nbsp;
+[![Read the docs](https://img.shields.io/badge/Read%20the%20docs-0b1220?style=for-the-badge)](https://docs.nudgra.com/)
+&nbsp;
+[![Self-hosted version](https://img.shields.io/badge/Self--hosted%20version-1e293b?style=for-the-badge)](https://github.com/MaikoCode/nudgra-oss)
 
-## What You Need
+</div>
+
+---
+
+## What is Nudgra Cloud?
+
+Nudgra is an open alternative to ManyChat for Instagram. It focuses on the automations most operators actually use: connect Instagram accounts, receive messages and comments through Meta webhooks, send replies and follow-up sequences, and manage everything from a clean dashboard.
+
+This repository is the **Cloud** build — it runs on [Next.js](https://nextjs.org/) for the dashboard and [Convex Cloud](https://www.convex.dev/) for backend state, auth, scheduling, and Meta webhooks. You deploy it to your own Vercel + Convex project, so there's no Postgres, no webhook server, and no background-job runner to operate yourself.
+
+> **Want to run the database and backend yourself?** Use **[Nudgra OSS](https://github.com/MaikoCode/nudgra-oss)** instead — a separate fully self-hosted TanStack Start + Postgres build of the same product.
+
+📖 Prefer a friendlier, step-by-step walkthrough? The hosted docs at **[docs.nudgra.com](https://docs.nudgra.com/)** mirror this guide in a more readable format.
+
+> 💡 You can also hand this README to a coding agent — Claude Code, Codex, Cursor, or similar — and ask it to walk you through setup. That works especially well for Convex environment variables, Google OAuth, Meta dashboard setup, and reading deployment logs.
+
+Questions or stuck? DM [@Maikoke5](https://x.com/Maikoke5).
+
+## ✨ Features
+
+| | |
+| --- | --- |
+| 💬 **Comment automations** | Auto-reply to comments on any post, specific posts/reels, or your next post when a comment matches your keywords — then send a DM with tracked link buttons. |
+| 📖 **Story-reply funnels** | Turn replies (or reactions) to any story, or one specific story, into the entry point of a follow-up sequence. |
+| ⚡ **Keyword DM rules** | Respond automatically when someone DMs a keyword. Set the rule once and Nudgra handles the rest. |
+| 🔁 **Follow-up sequences** | Multi-step, delayed DM sequences delivered reliably on Convex scheduled functions. |
+| 📥 **Unified inbox** | Read and reply to Instagram conversations from one dashboard. |
+| 👥 **Contacts & tags** | A lightweight contact record per person who engages, with automation-applied tags. |
+| 🔗 **Tracked links & CTR** | Per-button click tracking so you can see which automations convert. |
+| 🪪 **Multi-account** | Connect and switch between multiple Instagram professional accounts. |
+| 📊 **Logs & analytics** | Run counts, CTR, and delivery logs for every automation. |
+| 🛡️ **Safety guardrails** | Automations respect messaging-window and per-conversation limits, so you stay within Meta's rules. |
+
+## ⚙️ How it works
+
+1. **Connect** an Instagram professional account through Meta's Instagram Business Login — Nudgra runs the OAuth flow and stores account tokens in Convex itself.
+2. **Build** comment, story-reply, or keyword-DM automations in the dashboard.
+3. **React** — Meta webhooks hit your Convex HTTP endpoint, Nudgra matches triggers, and sends replies, DMs, and link buttons.
+4. **Follow up** — delayed sequences, token refreshes, and retries run on the Convex scheduler.
+5. **Measure** — watch runs, CTR, conversations, and logs from your dashboard.
+
+## 📌 Good to know
+
+- Nudgra automates **Instagram professional accounts** (business or creator) only.
+- **New-follower welcome automations are not possible.** Instagram exposes no public new-follower webhook trigger, so welcome-DM-on-follow cannot be set live. Use a comment, story-reply, or keyword-DM automation instead.
+- Your Meta app must be **published** for webhooks to work, and each Instagram account must accept its tester invite (see [Meta / Instagram setup](#-meta--instagram-setup)).
+- Meta webhooks point to the **Convex site URL**, not the Next.js app URL. In this repo the webhook route is defined in `convex/http.ts` at `/meta/webhooks`.
+
+## 🧱 Tech stack
+
+| Layer | Choice |
+| --- | --- |
+| Framework | Next.js 16 (React 19) |
+| Backend & data | Convex |
+| Auth | Convex Auth (Google sign-in) |
+| Scheduling & jobs | Convex scheduled functions |
+| Webhooks | Convex HTTP Actions |
+| Styling | Tailwind CSS v4 + shadcn/ui |
+
+---
+
+## Table of contents
+
+- [What you need](#what-you-need)
+- [Important URLs](#important-urls)
+- [Environment variables](#environment-variables)
+- [💻 Local development](#-local-development)
+- [🚀 Production deployment (Vercel + Convex)](#-production-deployment-vercel--convex)
+- [Google OAuth setup](#google-oauth-setup)
+- [📷 Meta / Instagram setup](#-meta--instagram-setup)
+- [Updating a deployment](#updating-a-deployment)
+- [Backup & data](#backup--data)
+- [Troubleshooting](#troubleshooting)
+- [Useful commands](#useful-commands)
+- [Project docs](#-project-docs)
+- [Contributing, security & license](#contributing-security--license)
+
+The setup has a few moving parts because Google OAuth, Instagram OAuth, Meta webhooks, and Convex all need to agree with each other. Expect about **15 minutes** if you already have a Convex project and an app domain ready.
+
+## What you need
 
 - A Google account for dashboard sign-in.
 - A Convex account for the backend deployment.
 - A Meta Developer account.
-- An Instagram professional account, business or creator, that you want to automate.
-- For production: Vercel and a public domain or subdomain for the Next.js app.
-- For local development: Node.js 24 or newer, Git, and optionally a public tunnel URL for Meta callback testing.
+- An Instagram professional account (business or creator) that you want to automate.
+- **For production:** Vercel and a public domain or subdomain for the Next.js app.
+- **For local development:** Node.js 24 or newer, Git, and optionally a public tunnel URL for Meta callback testing.
 
 ## Important URLs
 
@@ -42,9 +126,9 @@ Replace `https://your-convex-site.convex.site` with the Convex HTTP Actions URL 
 | Meta webhook callback URL | `https://your-convex-site.convex.site/meta/webhooks` |
 | Convex dashboard | `npx convex dashboard` |
 
-Meta webhooks must point to the Convex site URL, not the Next.js app URL. In this repo, the webhook route is defined in `convex/http.ts` at `/meta/webhooks`.
+> ⚠️ Two URLs commonly trip people up: the **Google OAuth redirect** and the **Meta webhook callback** must both point to the **Convex site URL** (`.convex.site`), not the Next.js app URL. The Meta OAuth redirect is the one exception — it points to the app domain.
 
-## Environment Variables
+## Environment variables
 
 Copy `.env.example` to `.env.local` for local work:
 
@@ -76,9 +160,9 @@ META_APP_SECRET=
 META_VERIFY_TOKEN=
 ```
 
-Production values should be split between your Next.js host and Convex.
+Production values are **split** between your Next.js host (Vercel) and Convex.
 
-Set these on Vercel:
+Set these on **Vercel**:
 
 | Variable | Purpose |
 | --- | --- |
@@ -88,7 +172,7 @@ Set these on Vercel:
 | `META_APP_SECRET` | Meta app secret used by the Next.js Meta routes |
 | `META_VERIFY_TOKEN` | Verify-token presence check for the Meta connect flow |
 
-Set these on the Convex production deployment:
+Set these on the **Convex production deployment**:
 
 | Variable | Purpose |
 | --- | --- |
@@ -101,13 +185,6 @@ Set these on the Convex production deployment:
 | `SITE_URL` | Public app origin used by tracked links and callback-aware backend flows |
 | `JWT_PRIVATE_KEY` | Convex Auth signing key |
 | `JWKS` | Convex Auth JWKS document |
-
-Important:
-
-- `JWT_PRIVATE_KEY` and `JWKS` are required by Convex Auth. Generate them with `npx @convex-dev/auth --prod`; do not handcraft them unless you are following the Convex Auth manual setup docs.
-- `NEXT_PUBLIC_CONVEX_URL` and `NEXT_PUBLIC_CONVEX_SITE_URL` are written by `npx convex dev` locally and injected by `npx convex deploy --cmd "npm run build"` during production builds.
-- `NUDGRA_ALLOWED_EMAILS` is required. If your Google email is not in the allowlist, sign-in will be rejected.
-- Keep `SITE_URL` exact. If your app is deployed at `https://cloud.example.com`, do not use a different Vercel preview URL or localhost value in production.
 
 Generate random tokens with OpenSSL:
 
@@ -123,11 +200,17 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 Use a generated value for `META_VERIFY_TOKEN`.
 
-## Local Development
+> **Important**
+> - `JWT_PRIVATE_KEY` and `JWKS` are required by Convex Auth. Generate them with `npx @convex-dev/auth --prod` — do not handcraft them unless you are following the [Convex Auth manual setup docs](https://labs.convex.dev/auth/setup/manual).
+> - `NEXT_PUBLIC_CONVEX_URL` and `NEXT_PUBLIC_CONVEX_SITE_URL` are written by `npx convex dev` locally and injected by `npx convex deploy --cmd "npm run build"` during production builds.
+> - `NUDGRA_ALLOWED_EMAILS` is required. If your Google email is not in the allowlist, sign-in is rejected.
+> - Keep `SITE_URL` exact. If your app is deployed at `https://cloud.example.com`, do not use a different Vercel preview URL or localhost value in production.
 
-This path is best for dashboard development and UI testing. For a complete Instagram webhook flow, use a deployed Convex site URL and a public app domain or tunnel because Meta cannot call `localhost`.
+## 💻 Local development
 
-### 1. Install Dependencies
+This path is best for dashboard development and UI testing. For a complete Instagram webhook flow, use a deployed Convex site URL and a public app domain or tunnel, because Meta cannot call `localhost`.
+
+### 1. Install dependencies
 
 Install:
 
@@ -135,10 +218,10 @@ Install:
 - Node.js 24 or newer
 - A Convex account
 
-Clone the repo and install packages:
+In a Unix shell (macOS, Linux, or Git Bash):
 
 ```bash
-git clone YOUR_REPO_URL nudgra-cloud
+git clone https://github.com/MaikoCode/nudgra-cloud.git nudgra-cloud
 cd nudgra-cloud
 npm install
 cp .env.example .env.local
@@ -147,13 +230,13 @@ cp .env.example .env.local
 In Windows PowerShell:
 
 ```powershell
-git clone YOUR_REPO_URL nudgra-cloud
+git clone https://github.com/MaikoCode/nudgra-cloud.git nudgra-cloud
 cd nudgra-cloud
 npm install
 Copy-Item .env.example .env.local
 ```
 
-### 2. Configure Local `.env.local`
+### 2. Configure local `.env.local`
 
 At minimum, set:
 
@@ -162,14 +245,14 @@ SITE_URL=http://localhost:3000
 NUDGRA_ALLOWED_EMAILS=your-google-email@gmail.com
 ```
 
-Google OAuth is required for normal sign-in. Create Google OAuth credentials using the Google section below, then set:
+Google OAuth is required for normal sign-in. Create Google OAuth credentials using the [Google section below](#google-oauth-setup), then set:
 
 ```env
 AUTH_GOOGLE_ID=your-google-client-id
 AUTH_GOOGLE_SECRET=your-google-client-secret
 ```
 
-For local Google OAuth, use your local Convex site URL as the redirect URI, not the Next.js app URL. `npx convex dev` will print or write the Convex values:
+For local Google OAuth, use your **local Convex site URL** as the redirect URI, not the Next.js app URL. `npx convex dev` will print or write the Convex values:
 
 ```env
 NEXT_PUBLIC_CONVEX_URL=https://your-dev-deployment.convex.cloud
@@ -192,17 +275,13 @@ For local Meta OAuth or tracked links, set `SITE_URL` to a public tunnel URL ins
 SITE_URL=https://your-tunnel.example.com
 ```
 
-### 3. Run The App
+### 3. Run the app
 
 ```bash
 npm run dev
 ```
 
-Open:
-
-```text
-http://localhost:3000
-```
+Open <http://localhost:3000>.
 
 Notes:
 
@@ -219,26 +298,20 @@ npx convex dashboard
 npx convex env list
 ```
 
-## Production Deployment
+## 🚀 Production deployment (Vercel + Convex)
 
-Recommended Cloud hosting model:
+This is the recommended hosted setup:
 
-- Next.js app on Vercel.
-- Convex backend on Convex Cloud.
+- Next.js app on **Vercel**.
+- Convex backend on **Convex Cloud**.
 - Google OAuth for sign-in.
-- Meta app for Instagram OAuth and webhooks.
+- A Meta app for Instagram OAuth and webhooks.
 
-This is the Cloud version. If you want the database and backend fully self-hosted, use Nudgra OSS instead: `TODO: add Nudgra OSS repo URL`.
+> Want the database and backend fully self-hosted instead? Use [Nudgra OSS](https://github.com/MaikoCode/nudgra-oss).
 
-### 1. Choose The App Domain
+### 1. Choose the app domain
 
-Pick the final public URL for the Next.js app:
-
-```text
-https://your-app-domain.com
-```
-
-Use that exact value everywhere:
+Pick the final public URL for the Next.js app, for example `https://your-app-domain.com`, and use that exact value everywhere:
 
 - Next.js host `SITE_URL`
 - Convex production `SITE_URL`
@@ -248,12 +321,12 @@ Use that exact value everywhere:
 
 If the domain changes later, update all platform settings and redeploy.
 
-### 2. Create The Convex Production Deployment
+### 2. Create the Convex production deployment
 
 1. Create or open your Convex project.
 2. Create a production deployment in the Convex dashboard.
 3. Generate a production deploy key from the Convex dashboard.
-4. Keep the production deployment's `.convex.site` URL handy. You will need it for Google and Meta.
+4. Keep the production deployment's `.convex.site` URL handy — you'll need it for Google and Meta.
 
 You can also open the dashboard from the project root:
 
@@ -261,7 +334,7 @@ You can also open the dashboard from the project root:
 npx convex dashboard
 ```
 
-### 3. Provision Convex Auth On Production
+### 3. Provision Convex Auth on production
 
 Run this from the project root:
 
@@ -276,21 +349,16 @@ When prompted:
 
 This prepares the production Convex deployment for Google sign-in and redirects back to your app after auth.
 
-### 4. Configure Convex Production Environment
+### 4. Configure the Convex production environment
 
-Set the email allowlist:
+Set the email allowlist and public app origin:
 
 ```bash
 npx convex env set --prod NUDGRA_ALLOWED_EMAILS your-google-email@gmail.com
-```
-
-Set the public app origin:
-
-```bash
 npx convex env set --prod SITE_URL https://your-app-domain.com
 ```
 
-After Google and Meta are configured, you will also set:
+After Google and Meta are configured, also set:
 
 ```bash
 npx convex env set --prod AUTH_GOOGLE_ID your-google-client-id
@@ -302,17 +370,10 @@ npx convex env set --prod META_VERIFY_TOKEN your-random-verify-token
 
 You can set the same values in the Convex dashboard instead of the CLI.
 
-### 5. Deploy On Vercel
-
-This is the simplest hosted path.
+### 5. Deploy on Vercel
 
 1. Import this repository into Vercel.
-2. Set the install command to:
-
-   ```bash
-   npm install
-   ```
-
+2. Set the install command to `npm install`.
 3. Set the build command to:
 
    ```bash
@@ -332,29 +393,28 @@ This is the simplest hosted path.
 5. Attach your production domain in Vercel.
 6. Redeploy after the domain and environment variables are final.
 
-Why the build command matters:
+Why the build command matters — it:
 
-- it deploys the Convex backend during the build
-- it typechecks and bundles Convex functions
-- it injects the correct Convex deployment URLs into the Next.js build
+- deploys the Convex backend during the build
+- typechecks and bundles Convex functions
+- injects the correct Convex deployment URLs into the Next.js build
 
-### 6. Smoke Test The Hosted App
+### 6. Smoke test the hosted app
 
 After the first deployment:
 
 1. Open `https://your-app-domain.com`.
 2. Sign in with a Google account listed in `NUDGRA_ALLOWED_EMAILS`.
-3. Open `/dashboard/account`.
-4. Connect an Instagram professional account.
-5. Confirm the account appears as connected.
-6. Send a real test DM, comment, or story reply.
-7. Verify that contacts, conversations, automations, and logs update in the dashboard.
-8. Verify that tracked links resolve through your app domain.
-9. Verify that webhook activity appears in logs.
+3. Open `/dashboard/account` and connect an Instagram professional account.
+4. Confirm the account appears as connected.
+5. Send a real test DM, comment, or story reply.
+6. Verify that contacts, conversations, automations, and logs update in the dashboard.
+7. Verify that tracked links resolve through your app domain.
+8. Verify that webhook activity appears in logs.
 
-## Google OAuth Setup
+## Google OAuth setup
 
-Go to the Google Cloud Console and create OAuth credentials for a web application.
+Go to the Google Cloud Console and create OAuth credentials for a **web application**.
 
 For production, set:
 
@@ -376,11 +436,9 @@ Authorized redirect URI:
 https://your-dev-deployment.convex.site/api/auth/callback/google
 ```
 
-If Google asks for an authorized domain, use the root domain, for example:
+> The redirect URI uses the **Convex site URL**, not the app domain. This repo uses Convex Auth routes hosted on the Convex site.
 
-```text
-example.com
-```
+If Google asks for an authorized domain, use the root domain, for example `example.com`.
 
 Copy the client ID and secret into Convex:
 
@@ -408,57 +466,46 @@ Redeploy production after changing hosted values:
 npx convex deploy --cmd "npm run build"
 ```
 
-## Meta / Instagram Setup
+## 📷 Meta / Instagram setup
 
-Meta's dashboard changes often, so labels may move slightly. The important pieces are the same: create a Meta app, add Instagram testers, publish the app, configure webhooks, configure Instagram business login, copy the Instagram app credentials into Convex and your Next.js host, and connect the account from Nudgra Cloud.
+Meta's dashboard changes often, so labels may move slightly. The important pieces stay the same: create a Meta app, add Instagram testers, publish the app, configure webhooks, configure Instagram business login, copy the Instagram app credentials into Convex and your Next.js host, and connect the account from Nudgra.
 
-### 1. Create The Meta App
+### 1. Create the Meta app
 
-Go to:
-
-```text
-https://developers.facebook.com/apps/
-```
-
-Sign up if needed, then click **Create App**.
+Go to <https://developers.facebook.com/apps/>, sign up if needed, then click **Create App**.
 
 During setup:
 
-- give the app a name
-- for the use case, select **Manage messaging & content on Instagram**
-- finish the app creation flow
+- Give the app a name.
+- For the use case, select **Manage messaging & content on Instagram**.
+- Finish the app creation flow.
 
-### 2. Add Instagram Testers
+### 2. Add Instagram testers
 
 Inside your Meta app dashboard:
 
 1. Go to **App roles**.
-2. Click **Roles**, not **Test users**.
+2. Click **Roles** (not **Test users**).
 3. Click **Add People**.
 4. In the modal, choose **Instagram Tester**.
-5. Add the Instagram accounts you want to automate with Nudgra Cloud.
+5. Add the Instagram accounts you want to automate with Nudgra.
 
 Then each Instagram account must accept the invite:
 
-1. Open Instagram in a desktop browser.
-2. Go to **Settings**.
-3. Go to **Website permissions**.
-4. Go to **Apps and Websites**.
-5. Open **Test invites**.
-6. Accept the invite.
+1. Open Instagram in a **desktop browser**.
+2. Go to **Settings → Website permissions → Apps and Websites → Test invites**.
+3. Accept the invite.
 
-The **Website permissions** area may not appear on mobile, so use Instagram on a computer.
+> The **Website permissions** area may not appear on mobile, so use Instagram on a computer.
 
-### 3. Add Permissions
+### 3. Add permissions
 
 In the Meta app dashboard:
 
 1. Go to **Use cases**.
 2. Open the Instagram use case.
 3. Go to **API setup with Instagram login**.
-4. In **Add required messaging permissions**, add the required permissions.
-
-Nudgra Cloud needs:
+4. In **Add required messaging permissions**, add the permissions Nudgra needs:
 
 ```text
 instagram_business_basic
@@ -466,36 +513,28 @@ instagram_business_manage_messages
 instagram_business_manage_comments
 ```
 
-You do not need to manually generate access tokens in Meta for Nudgra Cloud. The app performs the Instagram login flow and stores account tokens in Convex.
+You do not need to manually generate access tokens in Meta. Nudgra performs the Instagram login flow and stores account tokens in Convex.
 
-### 4. Publish The Meta App
+### 4. Publish the Meta app
 
-Webhooks need the app to be published for real delivery. For testing your own connected Instagram accounts, you can publish with basic app details.
-
-In the Meta app dashboard:
+Webhooks require the app to be published for real delivery. For testing your own connected Instagram accounts, you can publish with basic app details.
 
 1. Go to **Publish**.
 2. Add a privacy policy URL.
 3. Fill any required basic fields.
 4. Publish the app.
 
-For testing, a simple public privacy policy page is enough. For example, you can write the policy in Notion, publish the Notion page, and use that public URL.
+> For testing, a simple public privacy policy page is enough — for example, a published Notion page.
 
-### 5. Copy Instagram App Credentials
+### 5. Copy Instagram app credentials
 
-Return to your app in:
-
-```text
-https://developers.facebook.com/apps/
-```
-
-Then:
+Return to your app at <https://developers.facebook.com/apps/>, then:
 
 1. Go to **Use cases**.
 2. Click **Customize** or open the Instagram use case.
 3. Open **API setup with Instagram login**.
-4. Find **Instagram app ID** and copy it.
-5. Reveal and copy **Instagram app secret**.
+4. Find and copy the **Instagram app ID**.
+5. Reveal and copy the **Instagram app secret**.
 
 Put them on the Convex production deployment:
 
@@ -505,7 +544,7 @@ npx convex env set --prod META_APP_SECRET your-instagram-app-secret
 npx convex env set --prod META_VERIFY_TOKEN your-random-webhook-verify-token
 ```
 
-Put the same values on the Next.js host:
+Put the same values on the Next.js host (Vercel):
 
 ```env
 META_APP_ID=your-instagram-app-id
@@ -513,37 +552,26 @@ META_APP_SECRET=your-instagram-app-secret
 META_VERIFY_TOKEN=your-random-webhook-verify-token
 ```
 
-Generate a verify token yourself. It can be any strong random string:
+Generate a verify token yourself — any strong random string works:
 
 ```bash
 openssl rand -hex 32
-```
-
-Or generate it with Node:
-
-```bash
+# or
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
 Redeploy or restart after editing environment variables.
 
-### 6. Configure Webhooks
+### 6. Configure webhooks
 
-In **API setup with Instagram login**, open **Configure webhooks**.
-
-Set:
+In **API setup with Instagram login**, open **Configure webhooks** and set:
 
 ```text
-Callback URL:
-https://your-convex-site.convex.site/meta/webhooks
-
-Verify token:
-same value as META_VERIFY_TOKEN
+Callback URL: https://your-convex-site.convex.site/meta/webhooks
+Verify token: same value as META_VERIFY_TOKEN
 ```
 
-Click **Verify and save**.
-
-Subscribe to these webhook fields:
+Click **Verify and save**, then subscribe to these webhook fields:
 
 ```text
 messages
@@ -551,52 +579,41 @@ messaging_postbacks
 comments
 ```
 
-The app code expects Instagram webhook events through the Convex HTTP endpoint.
+> The webhook callback must point to the **Convex site URL**, not the Next.js app URL. The app expects Instagram webhook events through the Convex HTTP endpoint.
 
-### 7. Configure Instagram Business Login
+### 7. Configure Instagram business login
 
-In **API setup with Instagram login**, open **Set up Instagram business login**.
-
-Set:
+In **API setup with Instagram login**, open **Set up Instagram business login** and set:
 
 ```text
-Redirect URL:
-https://your-app-domain.com/api/meta/callback
+Redirect URL: https://your-app-domain.com/api/meta/callback
 ```
 
 Save the redirect URL.
 
-### 8. Connect Instagram In Nudgra Cloud
+### 8. Connect Instagram in Nudgra
 
-Open your Nudgra Cloud deployment:
+Open your deployment at `https://your-app-domain.com` and sign in with the Google account in `NUDGRA_ALLOWED_EMAILS`. Then:
 
-```text
-https://your-app-domain.com
-```
-
-Sign in with the Google account included in `NUDGRA_ALLOWED_EMAILS`.
-
-Then:
-
-1. Go to **Dashboard > Account**.
+1. Go to **Dashboard → Account**.
 2. Click **Add account**.
 3. Complete the Instagram permission screen.
 4. Allow profile/media access, comment access, and message access.
-5. Confirm that the account appears as connected and active.
+5. Confirm the account appears as connected and active.
 
-## Updating A Deployment
+## Updating a deployment
 
-For Vercel, push to the branch connected to the project and let the build run:
+For Vercel, push to the branch connected to the project and let the build run. The build command redeploys the Convex backend at the same time:
 
 ```bash
 npx convex deploy --cmd "npm run build"
 ```
 
-## Backup And Data
+## Backup & data
 
 Nudgra Cloud stores app data in Convex. Use the Convex dashboard and Convex CLI for data inspection, exports, and operational recovery.
 
-Keep a private copy of production environment variables. You will need them if you recreate the deployment or move the app domain.
+Keep a private copy of production environment variables — you'll need them if you recreate the deployment or move the app domain.
 
 Important secrets:
 
@@ -609,7 +626,8 @@ Important secrets:
 
 ## Troubleshooting
 
-### Google sign-in says the account is not allowed
+<details>
+<summary>Google sign-in says the account is not allowed</summary>
 
 Check that the exact Google email is listed in Convex:
 
@@ -625,7 +643,10 @@ npx convex env set --prod NUDGRA_ALLOWED_EMAILS you@example.com,backup@example.c
 
 For local development, also check `.env.local`.
 
-### Google login redirects to the wrong URL
+</details>
+
+<details>
+<summary>Google login redirects to the wrong URL</summary>
 
 Check:
 
@@ -633,23 +654,20 @@ Check:
 SITE_URL=https://your-app-domain.com
 ```
 
-Verify that the Google OAuth redirect URI uses the Convex site URL:
+Verify that the Google OAuth redirect URI uses the **Convex site URL**:
 
 ```text
 https://your-convex-site.convex.site/api/auth/callback/google
 ```
 
-Do not use:
+Do **not** use `https://your-app-domain.com/api/auth/callback/google`. This repo uses Convex Auth routes on the Convex site URL.
 
-```text
-https://your-app-domain.com/api/auth/callback/google
-```
+</details>
 
-This repo uses Convex Auth routes on the Convex site URL.
+<details>
+<summary>Meta webhook verification fails</summary>
 
-### Meta webhook verification fails
-
-Check:
+Check that:
 
 - `META_VERIFY_TOKEN` in Convex exactly matches the token entered in Meta.
 - `https://your-convex-site.convex.site/meta/webhooks` is reachable publicly.
@@ -657,40 +675,47 @@ Check:
 - The Meta app is published when testing real delivery.
 - The subscribed webhook fields are `messages`, `messaging_postbacks`, and `comments`.
 
-Useful commands:
-
 ```bash
 npx convex logs --prod
 npx convex env list --prod
 ```
 
-A plain browser request to the webhook URL may return `403` because it is missing Meta's verification query parameters. That still proves the route is reachable; Meta's **Verify and save** button is the real webhook verification.
+A plain browser request to the webhook URL may return `403` because it is missing Meta's verification query parameters. That still proves the route is reachable — Meta's **Verify and save** button is the real webhook verification.
 
-### Meta webhooks are verified but no events appear
+</details>
 
-Check:
+<details>
+<summary>Meta webhooks are verified but no events appear</summary>
 
-- Meta webhook callback points to the Convex URL, not the app URL.
+Check that:
+
+- The Meta webhook callback points to the Convex URL, not the app URL.
 - The connected Instagram account accepted the tester invite during development.
 - The app has the required Instagram permissions.
 - The app is in Live mode for real users.
-- The Instagram account is professional, business or creator.
+- The Instagram account is professional (business or creator).
 - The connected account still appears active in `/dashboard/account`.
 
-### Instagram account does not appear during connection
+</details>
 
-Check:
+<details>
+<summary>Instagram account does not appear during connection</summary>
+
+Check that:
 
 - The Instagram account accepted the tester invite.
 - The invite was accepted from Instagram on desktop.
 - The app has the required Instagram permissions.
-- The Instagram account is professional, business or creator.
+- The Instagram account is professional (business or creator).
 - You are logged into the correct Instagram account when authorizing.
 - `SITE_URL` matches the Meta redirect URL exactly.
 
-### The connect button returns a Meta config warning
+</details>
 
-Set these values on both Convex production and the Next.js host:
+<details>
+<summary>The connect button returns a Meta config warning</summary>
+
+Set these values on **both** Convex production and the Next.js host, then redeploy or restart:
 
 ```env
 META_APP_ID=your-instagram-app-id
@@ -698,9 +723,10 @@ META_APP_SECRET=your-instagram-app-secret
 META_VERIFY_TOKEN=your-random-webhook-verify-token
 ```
 
-Then redeploy or restart the app.
+</details>
 
-### Tracked links use the wrong host
+<details>
+<summary>Tracked links use the wrong host</summary>
 
 Check Convex production:
 
@@ -708,18 +734,18 @@ Check Convex production:
 npx convex env get --prod SITE_URL
 ```
 
-Set it to the public app domain:
+Set it to the public app domain and redeploy:
 
 ```bash
 npx convex env set --prod SITE_URL https://your-app-domain.com
 ```
 
-Redeploy after changing hosted settings.
+</details>
 
-## Useful Commands
+## Useful commands
 
 ```bash
-npm run dev
+npm run dev                                # Next.js + convex dev together
 npm run build
 npm run start
 npm run lint
@@ -732,7 +758,7 @@ npx convex env list --prod
 npx @convex-dev/auth --prod
 ```
 
-## Project Docs
+## 📚 Project docs
 
 - [Design](./DESIGN.md)
 - [Product Overview](./docs/product-overview.md)
@@ -742,17 +768,25 @@ npx @convex-dev/auth --prod
 - [Security Policy](./SECURITY.md)
 - [Trademark Policy](./TRADEMARKS.md)
 
-## Open Source Licensing And Branding
+## Contributing, security & license
 
-This repository's source code is released under the [MIT License](./LICENSE).
+- **Contributing** — see [CONTRIBUTING.md](./CONTRIBUTING.md). Bug fixes, tests, docs, and UI polish are all welcome.
+- **Security** — please report vulnerabilities privately. See [SECURITY.md](./SECURITY.md).
+- **License** — [MIT](./LICENSE). The MIT license does not grant rights to the `Nudgra` name, logo, or branding. If you fork or reuse the code for your own product, rename it and replace the branding; see [TRADEMARKS.md](./TRADEMARKS.md).
 
-The `Nudgra` name, logo, and branding are not included in that license. If you fork or reuse the code for your own product, rename it and replace the branding. See [TRADEMARKS.md](./TRADEMARKS.md).
-
-## Related References
+### Related references
 
 - [Convex hosting docs](https://docs.convex.dev/production/hosting/)
 - [Convex CLI deploy docs](https://docs.convex.dev/cli)
 - [Convex Auth manual setup](https://labs.convex.dev/auth/setup/manual)
 - [Convex Auth Google OAuth setup](https://labs.convex.dev/auth/config/oauth/google)
 - [Google OAuth client rules](https://support.google.com/cloud/answer/15549257)
-- [Meta setup notes for this repo](./docs/meta-setup.md)
+
+<div align="center">
+<br />
+
+If Nudgra is useful to you, consider **starring the repo** ⭐ — it genuinely helps.
+
+<sub>Built with Next.js · Convex · Convex Auth · Tailwind CSS · shadcn/ui</sub>
+
+</div>
