@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <!-- Source for the README hero. Render with: node .github/render-banner.mjs -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,800&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 1280px;
+        height: 560px;
+      }
+
+      .stage {
+        position: relative;
+        width: 1280px;
+        height: 560px;
+        overflow: hidden;
+        background:
+          radial-gradient(
+            900px 620px at 80% 42%,
+            rgba(37, 99, 235, 0.32),
+            transparent 62%
+          ),
+          radial-gradient(
+            1100px 800px at 8% 110%,
+            rgba(30, 58, 138, 0.28),
+            transparent 60%
+          ),
+          linear-gradient(160deg, #070b16 0%, #0a1020 55%, #060912 100%);
+        font-family: "Bricolage Grotesque", sans-serif;
+        color: #f8fafc;
+      }
+
+      /* Fine technical dot-grid, faded toward the edges */
+      .grid {
+        position: absolute;
+        inset: 0;
+        background-image: radial-gradient(
+          circle,
+          rgba(148, 163, 184, 0.16) 1px,
+          transparent 1px
+        );
+        background-size: 26px 26px;
+        -webkit-mask-image: radial-gradient(
+          1000px 700px at 50% 45%,
+          #000 0%,
+          transparent 78%
+        );
+        mask-image: radial-gradient(
+          1000px 700px at 50% 45%,
+          #000 0%,
+          transparent 78%
+        );
+        opacity: 0.7;
+      }
+
+      /* Top hairline highlight */
+      .stage::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          to bottom,
+          rgba(255, 255, 255, 0.06),
+          transparent 18%
+        );
+        pointer-events: none;
+      }
+
+      .content {
+        position: relative;
+        z-index: 3;
+        height: 100%;
+        padding: 70px 80px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+
+      /* ---- header lockup ---- */
+      .top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .lockup {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .mark {
+        width: 40px;
+        height: 40px;
+        filter: drop-shadow(0 0 14px rgba(59, 130, 246, 0.55));
+      }
+
+      .wordmark {
+        font-weight: 600;
+        font-size: 30px;
+        letter-spacing: -0.03em;
+        color: #f1f5f9;
+      }
+
+      .edition {
+        margin-left: 4px;
+        align-self: flex-start;
+        margin-top: 6px;
+        font-family: "Space Mono", monospace;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        color: #60a5fa;
+        text-transform: uppercase;
+      }
+
+      .repo {
+        font-family: "Space Mono", monospace;
+        font-size: 13px;
+        letter-spacing: 0.02em;
+        color: #64748b;
+      }
+
+      /* ---- main copy ---- */
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        padding: 7px 15px;
+        border: 1px solid rgba(96, 165, 250, 0.26);
+        border-radius: 999px;
+        background: rgba(37, 99, 235, 0.1);
+        font-family: "Space Mono", monospace;
+        font-size: 12.5px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        color: #93c5fd;
+        width: fit-content;
+      }
+
+      .dot {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #34d399;
+        box-shadow: 0 0 10px rgba(52, 211, 153, 0.9);
+      }
+
+      h1 {
+        margin-top: 26px;
+        font-weight: 800;
+        font-size: 70px;
+        line-height: 1;
+        letter-spacing: -0.035em;
+        max-width: 760px;
+      }
+
+      h1 .accent {
+        background: linear-gradient(100deg, #60a5fa 0%, #3b82f6 55%, #2563eb 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+
+      .sub {
+        margin-top: 24px;
+        font-family: "Space Mono", monospace;
+        font-size: 17px;
+        line-height: 1.62;
+        letter-spacing: -0.01em;
+        color: #9fb0c7;
+        max-width: 612px;
+      }
+
+      .sub b {
+        color: #e2e8f0;
+        font-weight: 700;
+      }
+
+      /* ---- bottom stack row ---- */
+      .stack {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .chip {
+        font-family: "Space Mono", monospace;
+        font-size: 12.5px;
+        letter-spacing: 0.02em;
+        color: #8595ad;
+        padding: 6px 12px;
+        border: 1px solid rgba(148, 163, 184, 0.16);
+        border-radius: 8px;
+        background: rgba(148, 163, 184, 0.04);
+      }
+
+      /* ---- brand motif bleeding off the right ---- */
+      .motif {
+        position: absolute;
+        right: -150px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 620px;
+        height: 620px;
+        z-index: 2;
+        opacity: 0.95;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <div class="grid"></div>
+
+      <!-- Brand motif: the chevron-in-circle "nudge" mark, echoed in concentric rings -->
+      <svg class="motif" viewBox="0 0 620 620" fill="none">
+        <defs>
+          <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#2563eb" stop-opacity="0.45" />
+            <stop offset="55%" stop-color="#1e3a8a" stop-opacity="0.12" />
+            <stop offset="100%" stop-color="#1e3a8a" stop-opacity="0" />
+          </radialGradient>
+          <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#60a5fa" />
+            <stop offset="100%" stop-color="#2563eb" />
+          </linearGradient>
+        </defs>
+
+        <circle cx="310" cy="310" r="300" fill="url(#glow)" />
+        <circle cx="310" cy="310" r="292" stroke="rgba(96,165,250,0.10)" stroke-width="1.5" />
+        <circle cx="310" cy="310" r="232" stroke="rgba(96,165,250,0.16)" stroke-width="1.5" />
+        <circle cx="310" cy="310" r="170" stroke="rgba(96,165,250,0.26)" stroke-width="2" />
+
+        <!-- the logo mark, scaled up -->
+        <g transform="translate(310 310) scale(5.2) translate(-24 -24)">
+          <circle
+            cx="24"
+            cy="24"
+            r="21.5"
+            stroke="url(#ring)"
+            stroke-width="2.6"
+          />
+          <polyline
+            points="18.5,13.5 29.5,24 18.5,34.5"
+            stroke="#93c5fd"
+            stroke-width="3.4"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            fill="none"
+          />
+        </g>
+      </svg>
+
+      <div class="content">
+        <div class="top">
+          <div class="lockup">
+            <svg class="mark" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="21.5" stroke="#3b82f6" stroke-width="2.8" />
+              <polyline
+                points="18.5,13.5 29.5,24 18.5,34.5"
+                stroke="#3b82f6"
+                stroke-width="3.4"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                fill="none"
+              />
+            </svg>
+            <span class="wordmark">nudgra</span>
+            <span class="edition">Cloud</span>
+          </div>
+          <span class="repo">github.com/MaikoCode/nudgra-cloud</span>
+        </div>
+
+        <div>
+          <div class="pill"><span class="dot"></span>OPEN SOURCE · NEXT.JS + CONVEX · MIT</div>
+          <h1>Own your Instagram <span class="accent">automation.</span></h1>
+          <p class="sub">
+            The open-source alternative to <b>ManyChat</b>, on a hosted
+            <b>Next.js + Convex</b> stack. Comment replies, story-reply funnels,
+            keyword DMs &amp; follow-up sequences — deploy your own in minutes.
+          </p>
+        </div>
+
+        <div class="stack">
+          <span class="chip">Next.js 16</span>
+          <span class="chip">React 19</span>
+          <span class="chip">Convex</span>
+          <span class="chip">Convex Auth</span>
+          <span class="chip">Tailwind CSS</span>
+          <span class="chip">shadcn/ui</span>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
