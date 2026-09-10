@@ -52,6 +52,7 @@ import type * as meta_sendHelpers from "../meta/sendHelpers.js";
 import type * as meta_stories from "../meta/stories.js";
 import type * as meta_storyQueries from "../meta/storyQueries.js";
 import type * as meta_tokenLifecycle from "../meta/tokenLifecycle.js";
+import type * as meta_webhookSignature from "../meta/webhookSignature.js";
 import type * as meta_webhooks from "../meta/webhooks.js";
 import type * as migrations from "../migrations.js";
 import type * as workspaces from "../workspaces.js";
@@ -107,6 +108,7 @@ declare const fullApi: ApiFromModules<{
   "meta/stories": typeof meta_stories;
   "meta/storyQueries": typeof meta_storyQueries;
   "meta/tokenLifecycle": typeof meta_tokenLifecycle;
+  "meta/webhookSignature": typeof meta_webhookSignature;
   "meta/webhooks": typeof meta_webhooks;
   migrations: typeof migrations;
   workspaces: typeof workspaces;

@@ -26,6 +26,11 @@ export default function DashboardLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isAccessLoading = isAuthenticated && accessStatus === undefined;
   const isAllowed = accessStatus?.isAllowed === true;
+  const workspaceSummary = useQuery(
+    api.workspaces.getCurrentWorkspaceSummary,
+    isAuthenticated && isAllowed ? {} : "skip",
+  );
+  const isWorkspaceReady = workspaceSummary !== undefined && workspaceSummary !== null;
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -34,12 +39,17 @@ export default function DashboardLayout({
   }, [isAuthenticated, isLoading, router]);
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated && isAllowed) {
+    if (!isLoading && isAuthenticated && isAllowed && workspaceSummary === null) {
       void ensureWorkspace({});
     }
-  }, [ensureWorkspace, isAllowed, isAuthenticated, isLoading]);
+  }, [ensureWorkspace, isAllowed, isAuthenticated, isLoading, workspaceSummary]);
 
-  if (isLoading || !isAuthenticated || isAccessLoading) {
+  if (
+    isLoading ||
+    !isAuthenticated ||
+    isAccessLoading ||
+    (isAllowed && !isWorkspaceReady)
+  ) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="flex gap-1.5">
